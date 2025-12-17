@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>CRM BI Dashboard</title>
+    <script src="//api.bitrix24.com/api/v1/"></script>
+
+    <!-- estilos globais -->
+    <link rel="stylesheet" href="../ui/styles.css">
+</head>
+<body>
+    <div class="app-shell">
+
+        <!-- Header -->
+        <header class="app-header">
+            <div class="app-header-title" id="app-title">
+                CRM BI – Painel Administrativo
+            </div>
+            <div class="app-header-user" id="header-user-info">
+                <!-- Nome do usuário admin / info -->
+            </div>
+        </header>
+
+        <div class="app-body">
+            <!-- Menu lateral -->
+            <nav class="sidebar">
+                <div class="sidebar-section-title">
+                    Módulos
+                </div>
+
+                <!-- Módulo Telefonia -->
+                <div class="sidebar-group">
+                    <button class="sidebar-item sidebar-item-module is-active"
+                            data-module="telefonia"
+                            data-view="overview">
+                        📞 Telefonia
+                    </button>
+                    <div class="sidebar-submenu">
+                        <button class="sidebar-subitem is-active"
+                                data-module="telefonia"
+                                data-view="overview">
+                            Visão geral
+                        </button>
+                        <button class="sidebar-subitem"
+                                data-module="telefonia"
+                                data-view="chamadas_realizadas">
+                            Chamadas realizadas
+                        </button>
+                        <button class="sidebar-subitem"
+                                data-module="telefonia"
+                                data-view="chamadas_atendidas">
+                            Chamadas atendidas
+                        </button>
+                        <!-- Futuro: chamadas perdidas, por status, etc. -->
+                    </div>
+                </div>
+
+                <!-- Futuro: Leads, Negócios, etc. -->
+                <!--
+                <div class="sidebar-group">
+                    <button class="sidebar-item sidebar-item-module"
+                            data-module="leads"
+                            data-view="overview">
+                        🧲 Leads
+                    </button>
+                </div>
+                -->
+
+            </nav>
+
+            <!-- Área principal do dashboard -->
+            <main class="main-content">
+                <!-- Filtros dinâmicos (período, usuário, etc.) -->
+                <section class="filters-bar" id="filters-bar">
+                    <!-- O módulo ativo monta os filtros aqui -->
+                </section>
+
+                <!-- Conteúdo principal dos gráficos/tabelas -->
+                <section class="dashboard-content" id="dashboard-content">
+                    <div class="placeholder">
+                        Carregando módulo de Telefonia...
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- Núcleo / namespace -->
+    <script src="../core/app-namespace.js"></script>
+    <script src="../core/logging.js"></script>
+    <script src="../core/url-utils.js"></script>
+
+    <!-- Router / layout base -->
+    <script src="../ui/layout.js"></script>
+    <script src="../core/router.js"></script>
+
+    <!-- Módulo Telefonia -->
+    <script src="../modules/telefonia/telefonia.service.js"></script>
+    <script src="../modules/telefonia/telefonia.dashboard.js"></script>
+    <script src="../modules/telefonia/telefonia.module.js"></script>
+
+    <!-- Bitrix init + eventos de UI globais -->
+    <script src="../core/bitrix-init.js"></script>
+    <script src="../ui/events.js"></script>
+
+</body>
+</html>
