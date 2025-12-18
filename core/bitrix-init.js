@@ -1,7 +1,9 @@
 (function (global) {
     const App  = global.App = global.App || {};
     const log  = App.log || function(){};
-    const refs = App.ui.refs;
+    const refs = App.ui.refs || {};
+
+    App.state = App.state || {};
 
     BX24.init(function() {
         log('BX24.init OK. Pronto para usar API.');
@@ -55,9 +57,18 @@
                 return;
             }
 
-            // Admin autorizado: abre módulo padrão
-            if (App.setActiveModule) {
+            // Admin autorizado: abre módulo padrão (Telefonia / Visão geral)
+            if (typeof App.setActiveModule === 'function') {
                 App.setActiveModule('telefonia', 'overview');
+            } else if (App.modules && App.modules.telefonia) {
+                // fallback se o router ainda não estiver pronto
+                const mod = App.modules.telefonia;
+                if (mod.renderFilters && refs.filtersBarEl) {
+                    mod.renderFilters(refs.filtersBarEl, 'overview');
+                }
+                if (typeof mod.loadAndRender === 'function') {
+                    mod.loadAndRender('overview');
+                }
             }
         });
     });
