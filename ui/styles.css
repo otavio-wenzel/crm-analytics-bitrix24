@@ -123,3 +123,29 @@ body {
     color: #777;
     font-style: italic;
 }
+
+.panel-block {
+    padding: 16px;
+    font-size: 13px;
+}
+
+.table-plain {
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.simple-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.simple-table th,
+.simple-table td {
+    padding: 4px 6px;
+    border-bottom: 1px solid #eee;
+    text-align: left;
+}
+.simple-table th {
+    background-color: #f5f7f9;
+    font-weight: 600;
+}

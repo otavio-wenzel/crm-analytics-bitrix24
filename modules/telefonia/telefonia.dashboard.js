@@ -1,169 +1,208 @@
 (function (global) {
-    const App  = global.App = global.App || {};
-    const refs = App.ui.refs || {};
-    const log  = App.log || function(){};
+  const App  = global.App = global.App || {};
+  const refs = App.ui.refs;
+  const log  = App.log || function(){};
 
-    function safeNumber(n) {
-        return (typeof n === 'number' && !isNaN(n)) ? n : 0;
+  function showLoading(isLoading) {
+    if (!refs.dashboardContentEl) return;
+    if (isLoading) {
+      refs.dashboardContentEl.innerHTML =
+        '<div class="placeholder">Carregando dados de telefonia...</div>';
+    }
+  }
+
+  function renderError(message) {
+    if (!refs.dashboardContentEl) return;
+    refs.dashboardContentEl.innerHTML =
+      `<div class="placeholder">${message || 'Erro ao carregar dados.'}</div>`;
+  }
+
+  function renderOverview(data, filters) {
+    if (!refs.dashboardContentEl) return;
+    if (!data || !data.totals) {
+      refs.dashboardContentEl.innerHTML =
+        '<div class="placeholder">Nenhum dado encontrado para o período selecionado.</div>';
+      return;
     }
 
-    function renderOverview(data) {
-        if (!refs.dashboardContentEl) return;
+    let html = '';
 
-        if (!data || !Array.isArray(data.callsByUser)) {
-            refs.dashboardContentEl.innerHTML =
-                '<div class="placeholder">Nenhum dado de chamadas encontrado para o período selecionado.</div>';
-            return;
-        }
+    html += '<h3>Visão geral de chamadas</h3>';
+    html += `<p>
+      Total de chamadas: ${data.totals.totalCalls}<br>
+      Chamadas recebidas (entrada): ${data.totals.inbound}<br>
+      Chamadas realizadas (saída): ${data.totals.outbound}
+      ${typeof data.totals.unknown === 'number' ? `<br>Desconhecidas: ${data.totals.unknown}` : ''}
+    </p>`;
 
-        const totalCalls    = safeNumber(data.totalCalls);
-        const answeredCalls = safeNumber(data.answeredCalls);
-        const missedCalls   = safeNumber(data.missedCalls);
+    html += '<h4>Chamadas por usuário (todas as direções)</h4>';
+    html += `
+      <table class="simple-table">
+        <thead>
+          <tr>
+            <th>Usuário</th>
+            <th>Total</th>
+            <th>Atendidas</th>
+            <th>Perdidas</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+    (data.byUser || []).forEach(row => {
+      const label = row.userName || row.userId;
+      html += `
+        <tr>
+          <td>${label}</td>
+          <td>${row.total}</td>
+          <td>${row.answered}</td>
+          <td>${row.missed}</td>
+        </tr>
+      `;
+    });
+    html += '</tbody></table>';
 
-        const userRows = data.callsByUser.map(u => `
-            <tr>
-                <td>${u.userId}</td>
-                <td>${safeNumber(u.total)}</td>
-                <td>${safeNumber(u.answered)}</td>
-                <td>${safeNumber(u.missed)}</td>
-            </tr>
-        `).join('') || '<tr><td colspan="4">Sem dados por usuário.</td></tr>';
+    html += '<h4>Status das chamadas realizadas</h4>';
+    html += `
+      <table class="simple-table">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Qtd</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+    (data.byStatus || []).forEach(row => {
+      html += `
+        <tr>
+          <td>${row.status}</td>
+          <td>${row.count}</td>
+        </tr>
+      `;
+    });
+    html += '</tbody></table>';
 
-        const statusRows = data.callsByStatus.map(s => `
-            <tr>
-                <td>${s.status}</td>
-                <td>${safeNumber(s.total)}</td>
-            </tr>
-        `).join('') || '<tr><td colspan="2">Sem dados por status.</td></tr>';
+    refs.dashboardContentEl.innerHTML = html;
+  }
 
-        refs.dashboardContentEl.innerHTML = `
-            <div class="cards-row">
-                <div class="card kpi-card">
-                    <div class="kpi-label">Total de chamadas</div>
-                    <div class="kpi-value">${totalCalls}</div>
-                </div>
-                <div class="card kpi-card">
-                    <div class="kpi-label">Chamadas atendidas</div>
-                    <div class="kpi-value">${answeredCalls}</div>
-                </div>
-                <div class="card kpi-card">
-                    <div class="kpi-label">Chamadas perdidas</div>
-                    <div class="kpi-value">${missedCalls}</div>
-                </div>
-            </div>
-
-            <div class="card">
-                <h3>Chamadas por usuário (RESPONSIBLE_ID)</h3>
-                <div class="table-wrapper">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Usuário (ID)</th>
-                                <th>Total</th>
-                                <th>Atendidas</th>
-                                <th>Perdidas</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${userRows}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="card">
-                <h3>Chamadas por status (DESCRIPTION)</h3>
-                <div class="table-wrapper">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Status</th>
-                                <th>Qtd</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${statusRows}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        `;
+  function renderChamadasRecebidas(data, filters) {
+    if (!refs.dashboardContentEl) return;
+    if (!data || !data.totals) {
+      refs.dashboardContentEl.innerHTML =
+        '<div class="placeholder">Nenhuma chamada recebida no período.</div>';
+      return;
     }
 
-    function renderChamadasRealizadas(data) {
-        if (!refs.dashboardContentEl) return;
-        const total = safeNumber(data && data.total);
+    let html = '';
 
-        const rows = (data && Array.isArray(data.callsByUser))
-            ? data.callsByUser.map(u => `
-                <tr>
-                    <td>${u.userId}</td>
-                    <td>${safeNumber(u.total)}</td>
-                </tr>
-            `).join('')
-            : '';
+    html += '<h3>Chamadas recebidas</h3>';
+    html += `<p>
+      Total de chamadas recebidas: ${data.totals.totalCalls}<br>
+      Atendidas: ${data.totals.answered}<br>
+      Perdidas: ${data.totals.missed}
+    </p>`;
 
-        const body = rows || '<tr><td colspan="2">Sem dados.</td></tr>';
+    html += '<h4>Por usuário</h4>';
+    html += `
+      <table class="simple-table">
+        <thead>
+          <tr>
+            <th>Usuário</th>
+            <th>Total</th>
+            <th>Atendidas</th>
+            <th>Perdidas</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+    (data.byUser || []).forEach(row => {
+      const label = row.userName || row.userId;
+      html += `
+        <tr>
+          <td>${label}</td>
+          <td>${row.total}</td>
+          <td>${row.answered}</td>
+          <td>${row.missed}</td>
+        </tr>
+      `;
+    });
+    html += '</tbody></table>';
 
-        refs.dashboardContentEl.innerHTML = `
-            <div class="card">
-                <h3>Chamadas realizadas (saída)</h3>
-                <p>Total de chamadas realizadas no período: <b>${total}</b></p>
-                <div class="table-wrapper">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Usuário (ID)</th>
-                                <th>Total de chamadas</th>
-                            </tr>
-                        </thead>
-                        <tbody>${body}</tbody>
-                    </table>
-                </div>
-            </div>
-        `;
+    refs.dashboardContentEl.innerHTML = html;
+  }
+
+  function renderChamadasRealizadas(data, filters) {
+    if (!refs.dashboardContentEl) return;
+    if (!data || !data.totals) {
+      refs.dashboardContentEl.innerHTML =
+        '<div class="placeholder">Nenhuma chamada realizada no período.</div>';
+      return;
     }
 
-    function renderChamadasAtendidas(data) {
-        if (!refs.dashboardContentEl) return;
-        const total = safeNumber(data && data.total);
+    let html = '';
 
-        const rows = (data && Array.isArray(data.callsByUser))
-            ? data.callsByUser.map(u => `
-                <tr>
-                    <td>${u.userId}</td>
-                    <td>${safeNumber(u.answered || u.total)}</td>
-                </tr>
-            `).join('')
-            : '';
+    html += '<h3>Chamadas realizadas (saída)</h3>';
+    html += `<p>
+      Total de chamadas realizadas: ${data.totals.totalCalls}<br>
+      Atendidas: ${data.totals.answered}<br>
+      Não atendidas / perdidas: ${data.totals.missed}
+    </p>`;
 
-        const body = rows || '<tr><td colspan="2">Sem dados.</td></tr>';
+    html += '<h4>Por usuário</h4>';
+    html += `
+      <table class="simple-table">
+        <thead>
+          <tr>
+            <th>Usuário</th>
+            <th>Total</th>
+            <th>Atendidas</th>
+            <th>Perdidas</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+    (data.byUser || []).forEach(row => {
+      const label = row.userName || row.userId;
+      html += `
+        <tr>
+          <td>${label}</td>
+          <td>${row.total}</td>
+          <td>${row.answered}</td>
+          <td>${row.missed}</td>
+        </tr>
+      `;
+    });
+    html += '</tbody></table>';
 
-        refs.dashboardContentEl.innerHTML = `
-            <div class="card">
-                <h3>Chamadas atendidas (saída)</h3>
-                <p>Total de chamadas atendidas no período: <b>${total}</b></p>
-                <div class="table-wrapper">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Usuário (ID)</th>
-                                <th>Chamadas atendidas</th>
-                            </tr>
-                        </thead>
-                        <tbody>${body}</tbody>
-                    </table>
-                </div>
-            </div>
-        `;
-    }
+    html += '<h4>Status das chamadas realizadas</h4>';
+    html += `
+      <table class="simple-table">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Qtd</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+    (data.byStatus || []).forEach(row => {
+      html += `
+        <tr>
+          <td>${row.status}</td>
+          <td>${row.count}</td>
+        </tr>
+      `;
+    });
+    html += '</tbody></table>';
 
-    const TelefoniaDashboard = {
-        renderOverview,
-        renderChamadasRealizadas,
-        renderChamadasAtendidas
-    };
+    refs.dashboardContentEl.innerHTML = html;
+  }
 
-    App.modules = App.modules || {};
-    App.modules.TelefoniaDashboard = TelefoniaDashboard;
+  App.modules.TelefoniaDashboard = {
+    showLoading,
+    renderError,
+    renderOverview,
+    renderChamadasRecebidas,
+    renderChamadasRealizadas
+  };
 })(window);

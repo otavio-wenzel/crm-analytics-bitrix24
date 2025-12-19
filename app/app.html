@@ -37,22 +37,19 @@
                     </button>
                     <div class="sidebar-submenu">
                         <button class="sidebar-subitem is-active"
-                                id="nav-telefonia-overview"
                                 data-module="telefonia"
                                 data-view="overview">
                             Visão geral
                         </button>
                         <button class="sidebar-subitem"
-                                id="nav-telefonia-realizadas"
+                                data-module="telefonia"
+                                data-view="chamadas_recebidas">
+                            Chamadas recebidas
+                        </button>
+                        <button class="sidebar-subitem"
                                 data-module="telefonia"
                                 data-view="chamadas_realizadas">
                             Chamadas realizadas
-                        </button>
-                        <button class="sidebar-subitem"
-                                id="nav-telefonia-atendidas"
-                                data-module="telefonia"
-                                data-view="chamadas_atendidas">
-                            Chamadas atendidas
                         </button>
                     </div>
                 </div>
@@ -75,23 +72,18 @@
         </div>
     </div>
 
-    <!-- Núcleo / namespace -->
     <script src="../core/app-namespace.js"></script>
     <script src="../core/logging.js"></script>
     <script src="../core/url-utils.js"></script>
 
-    <!-- Layout / refs / router -->
     <script src="../ui/layout.js"></script>
     <script src="../core/router.js"></script>
 
-    <!-- Módulo Telefonia -->
     <script src="../modules/telefonia/telefonia.service.js"></script>
     <script src="../modules/telefonia/telefonia.dashboard.js"></script>
     <script src="../modules/telefonia/telefonia.module.js"></script>
 
-    <!-- Bitrix init + eventos de UI globais -->
     <script src="../core/bitrix-init.js"></script>
     <script src="../ui/events.js"></script>
-
 </body>
 </html>
