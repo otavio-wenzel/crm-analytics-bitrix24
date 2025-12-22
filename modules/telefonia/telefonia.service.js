@@ -5,9 +5,6 @@
   App.modules = App.modules || {};
 
   // CALL_TYPE (Voximplant)
-  // 1 — outgoing
-  // 2 — incoming
-  // 3 — incoming redirected
   const CALLTYPE_OUTGOING = 1;
   const CALLTYPE_INCOMING = 2;
   const CALLTYPE_INCOMING_REDIRECTED = 3;
@@ -16,7 +13,6 @@
     return (dt && typeof dt === 'string') ? dt.replace('T', ' ') : dt;
   }
 
-  // diff em dias (inteiro aproximado)
   function diffDays(fromIso, toIso) {
     const a = new Date(fromIso);
     const b = new Date(toIso);
@@ -27,7 +23,6 @@
   function addDays(iso, days) {
     const d = new Date(iso);
     d.setDate(d.getDate() + days);
-    // mantém horário do iso original
     const yyyy = d.getFullYear();
     const mm   = String(d.getMonth() + 1).padStart(2,'0');
     const dd   = String(d.getDate()).padStart(2,'0');
@@ -37,12 +32,9 @@
     return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`;
   }
 
-  // Lista paginada com:
-  // - timeout POR PÁGINA (resetado a cada retorno)
-  // - timeout TOTAL opcional
   function callBx24ListAll(method, params, job, opts) {
     const timeoutPerPageMs = (opts && opts.timeoutPerPageMs) || 20000;
-    const maxTotalMs       = (opts && opts.maxTotalMs) || 180000; // 3 min total
+    const maxTotalMs       = (opts && opts.maxTotalMs) || 180000;
     const startedAt = Date.now();
 
     return new Promise((resolve, reject) => {
@@ -74,36 +66,23 @@
       function step() {
         if (done) return;
 
-        if (job && job.canceled) {
-          return finishErr(new Error('CANCELED'));
-        }
-
-        if ((Date.now() - startedAt) > maxTotalMs) {
-          return finishErr(new Error('TIMEOUT'));
-        }
+        if (job && job.canceled) return finishErr(new Error('CANCELED'));
+        if ((Date.now() - startedAt) > maxTotalMs) return finishErr(new Error('TIMEOUT'));
 
         armWatchdog();
 
         BX24.callMethod(method, params, function (result) {
           if (done) return;
 
-          if (job && job.canceled) {
-            return finishErr(new Error('CANCELED'));
-          }
-
-          if (result.error && result.error()) {
-            return finishErr(result.error());
-          }
+          if (job && job.canceled) return finishErr(new Error('CANCELED'));
+          if (result.error && result.error()) return finishErr(result.error());
 
           const data = (typeof result.data === 'function') ? (result.data() || []) : [];
           if (data.length) all.push(...data);
 
-          if ((Date.now() - startedAt) > maxTotalMs) {
-            return finishErr(new Error('TIMEOUT'));
-          }
+          if ((Date.now() - startedAt) > maxTotalMs) return finishErr(new Error('TIMEOUT'));
 
           if (result.more && result.more()) {
-            // reseta watchdog e vai pra próxima página
             armWatchdog();
             result.next();
           } else {
@@ -116,11 +95,9 @@
     });
   }
 
-  // Busca chamadas no Voximplant. Para períodos grandes, quebra em blocos (7 dias)
   async function fetchCallHistory(filters, job) {
     const CHUNK_DAYS = 7;
 
-    // se tiver intervalo definido, quebra em blocos
     const hasRange = !!(filters && filters.dateFrom && filters.dateTo);
     const chunks = [];
 
@@ -130,17 +107,14 @@
         let cursorFrom = filters.dateFrom;
         while (new Date(cursorFrom) <= new Date(filters.dateTo)) {
           const cursorTo = addDays(cursorFrom, CHUNK_DAYS);
-          // garante não passar do dateTo
           const cappedTo = (new Date(cursorTo) > new Date(filters.dateTo)) ? filters.dateTo : cursorTo;
           chunks.push({ dateFrom: cursorFrom, dateTo: cappedTo });
-          // próximo bloco começa no dia seguinte do cappedTo (mantendo horário 00:00:00)
           cursorFrom = addDays(cappedTo, 1);
         }
       } else {
         chunks.push({ dateFrom: filters.dateFrom, dateTo: filters.dateTo });
       }
     } else {
-      // "all" (sem range): um único chunk (pode ser pesado)
       chunks.push({ dateFrom: null, dateTo: null });
     }
 
@@ -169,9 +143,13 @@
     return allCalls;
   }
 
-  function isAnsweredFromVox(call) {
+  function safeDurationSec(call) {
     const dur = parseInt(call.CALL_DURATION, 10);
-    return Number.isFinite(dur) && dur > 0;
+    return Number.isFinite(dur) && dur > 0 ? dur : 0;
+  }
+
+  function isAnsweredFromVox(call) {
+    return safeDurationSec(call) > 0;
   }
 
   function directionBucket(call) {
@@ -181,6 +159,15 @@
     return 'unknown';
   }
 
+  // ====== AGREGADORES COM DURAÇÃO ======
+
+  function ensureUser(byUser, userId) {
+    if (!byUser[userId]) {
+      byUser[userId] = { userId, total: 0, answered: 0, missed: 0, totalDurationSeconds: 0 };
+    }
+    return byUser[userId];
+  }
+
   function aggregateOverviewFromVox(calls) {
     const totals = {
       totalCalls: calls.length,
@@ -188,7 +175,8 @@
       outbound: 0,
       unknown: 0,
       answered: 0,
-      missed: 0
+      missed: 0,
+      totalDurationSeconds: 0
     };
 
     const byUser = {};
@@ -197,20 +185,24 @@
     calls.forEach(c => {
       const userId = c.PORTAL_USER_ID ? String(c.PORTAL_USER_ID) : '0';
       const bucket = directionBucket(c);
-      const ans = isAnsweredFromVox(c);
+      const durSec = safeDurationSec(c);
+      const ans = durSec > 0;
 
       if (bucket === 'inbound') totals.inbound++;
       else if (bucket === 'outbound') totals.outbound++;
       else totals.unknown++;
 
-      if (!byUser[userId]) byUser[userId] = { userId, total: 0, answered: 0, missed: 0 };
-      byUser[userId].total++;
+      const u = ensureUser(byUser, userId);
+      u.total++;
+      u.totalDurationSeconds += durSec;
+
+      totals.totalDurationSeconds += durSec;
 
       if (ans) {
-        byUser[userId].answered++;
+        u.answered++;
         totals.answered++;
       } else {
-        byUser[userId].missed++;
+        u.missed++;
         totals.missed++;
       }
     });
@@ -228,21 +220,25 @@
       return t === CALLTYPE_INCOMING || t === CALLTYPE_INCOMING_REDIRECTED;
     });
 
-    const totals = { totalCalls: inbound.length, answered: 0, missed: 0 };
+    const totals = { totalCalls: inbound.length, answered: 0, missed: 0, totalDurationSeconds: 0 };
     const byUser = {};
 
     inbound.forEach(c => {
       const userId = c.PORTAL_USER_ID ? String(c.PORTAL_USER_ID) : '0';
-      const ans = isAnsweredFromVox(c);
+      const durSec = safeDurationSec(c);
+      const ans = durSec > 0;
 
-      if (!byUser[userId]) byUser[userId] = { userId, total: 0, answered: 0, missed: 0 };
-      byUser[userId].total++;
+      const u = ensureUser(byUser, userId);
+      u.total++;
+      u.totalDurationSeconds += durSec;
+
+      totals.totalDurationSeconds += durSec;
 
       if (ans) {
-        byUser[userId].answered++;
+        u.answered++;
         totals.answered++;
       } else {
-        byUser[userId].missed++;
+        u.missed++;
         totals.missed++;
       }
     });
@@ -253,28 +249,33 @@
   function aggregateOutboundFromVox(calls) {
     const outbound = calls.filter(c => (parseInt(c.CALL_TYPE, 10) || 0) === CALLTYPE_OUTGOING);
 
-    const totals = { totalCalls: outbound.length, answered: 0, missed: 0 };
+    const totals = { totalCalls: outbound.length, answered: 0, missed: 0, totalDurationSeconds: 0 };
     const byUser = {};
     const byStatus = {};
 
     outbound.forEach(c => {
       const userId = c.PORTAL_USER_ID ? String(c.PORTAL_USER_ID) : '0';
-      const ans = isAnsweredFromVox(c);
+      const durSec = safeDurationSec(c);
+      const ans = durSec > 0;
 
-      if (!byUser[userId]) byUser[userId] = { userId, total: 0, answered: 0, missed: 0 };
-      byUser[userId].total++;
+      const u = ensureUser(byUser, userId);
+      u.total++;
+      u.totalDurationSeconds += durSec;
+
+      totals.totalDurationSeconds += durSec;
 
       if (ans) {
-        byUser[userId].answered++;
+        u.answered++;
         totals.answered++;
       } else {
-        byUser[userId].missed++;
+        u.missed++;
         totals.missed++;
       }
 
       const code = (c.CALL_FAILED_CODE || 'SEM_CODIGO').toString();
-      byStatus[code] = byStatus[code] || { status: code, count: 0 };
+      if (!byStatus[code]) byStatus[code] = { status: code, count: 0, totalDurationSeconds: 0 };
       byStatus[code].count++;
+      byStatus[code].totalDurationSeconds += durSec;
     });
 
     return { totals, byUser: Object.values(byUser), byStatus: Object.values(byStatus) };
@@ -286,7 +287,6 @@
     const ids = Array.from(new Set(
       rows.map(r => String(r.userId)).filter(id => id && id !== '0')
     ));
-
     if (!ids.length) return rows;
 
     const map = {};
@@ -315,18 +315,13 @@
       while (idx < ids.length) {
         if (job && job.canceled) throw new Error('CANCELED');
         const id = ids[idx++];
-        try {
-          await fetchOne(id);
-        } catch (e) {
-          log('[TelefoniaService] erro user.get ID=' + id, e);
-        }
+        try { await fetchOne(id); }
+        catch (e) { log('[TelefoniaService] erro user.get ID=' + id, e); }
       }
     }
 
     const workers = [];
-    for (let i = 0; i < Math.min(CONCURRENCY, ids.length); i++) {
-      workers.push(worker());
-    }
+    for (let i = 0; i < Math.min(CONCURRENCY, ids.length); i++) workers.push(worker());
     await Promise.all(workers);
 
     rows.forEach(r => {
