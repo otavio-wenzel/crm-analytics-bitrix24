@@ -59,7 +59,7 @@
 
             // Admin autorizado: abre módulo padrão (Telefonia / Visão geral)
             if (typeof App.setActiveModule === 'function') {
-                App.setActiveModule('telefonia', 'overview');
+                App.setActiveModule('telefonia', null);
             } else if (App.modules && App.modules.telefonia) {
                 // fallback se o router ainda não estiver pronto
                 const mod = App.modules.telefonia;
