@@ -8,9 +8,7 @@
     return (dt && typeof dt === 'string') ? dt.replace('T', ' ') : dt;
   }
 
-  function addDays(iso, days) {
-    const d = new Date(iso);
-    d.setDate(d.getDate() + days);
+  function toIsoLocal(d) {
     const yyyy = d.getFullYear();
     const mm   = String(d.getMonth() + 1).padStart(2,'0');
     const dd   = String(d.getDate()).padStart(2,'0');
@@ -20,43 +18,63 @@
     return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`;
   }
 
-  function makeChunks(dateFrom, dateTo, chunkDays) {
-    const chunks = [];
-    let cursorFrom = dateFrom;
+  // ✅ chunks por "dias inteiros" (00:00:00 -> 23:59:59) sem buracos
+  function makeDayChunks(dateFromIso, dateToIso, daysPerChunk) {
+    const out = [];
+    if (!dateFromIso || !dateToIso) return out;
 
-    // ✅ importante: não pular nem criar gaps
-    while (new Date(cursorFrom) <= new Date(dateTo)) {
-      const cursorTo = addDays(cursorFrom, chunkDays);
-      const cappedTo = (new Date(cursorTo) > new Date(dateTo)) ? dateTo : cursorTo;
-      chunks.push({ dateFrom: cursorFrom, dateTo: cappedTo });
-      cursorFrom = addDays(cappedTo, 1); // próximo dia após o cappedTo
+    const end = new Date(dateToIso);
+    end.setHours(23,59,59,0);
+
+    let cursor = new Date(dateFromIso);
+    cursor.setHours(0,0,0,0);
+
+    while (cursor <= end) {
+      const chunkStart = new Date(cursor);
+
+      const chunkEnd = new Date(cursor);
+      chunkEnd.setDate(chunkEnd.getDate() + (daysPerChunk - 1));
+      chunkEnd.setHours(23,59,59,0);
+
+      if (chunkEnd > end) chunkEnd.setTime(end.getTime());
+
+      out.push({
+        dateFrom: toIsoLocal(chunkStart),
+        dateTo: toIsoLocal(chunkEnd)
+      });
+
+      cursor.setDate(cursor.getDate() + daysPerChunk);
+      cursor.setHours(0,0,0,0);
     }
-    return chunks;
-  }
 
-  function buildBasePeriodFilter(ctx, baseFilter, range) {
-    if (range && range.dateFrom) baseFilter[">=CALL_START_DATE"] = isoToSpace(range.dateFrom);
-    if (range && range.dateTo)   baseFilter["<=CALL_START_DATE"] = isoToSpace(range.dateTo);
-    return baseFilter;
+    return out;
   }
 
   function buildRanges(ctx) {
     const f = ctx.filters || {};
     if (!f.dateFrom || !f.dateTo) return [];
 
-    const from = f.dateFrom;
-    const to   = f.dateTo;
+    // 7 dias é ok; o service pode pedir 3 dias no fallback
+    const chunks = makeDayChunks(f.dateFrom, f.dateTo, 7);
 
-    // ranges grandes: chunk 7 dias, fallback interno 3 dias fica no provider/service
-    const CHUNK_DAYS = 7;
-    const chunks = makeChunks(from, to, CHUNK_DAYS);
-
-    log('[PeriodFilter] chunks = ' + chunks.length, { from, to });
+    log('[PeriodFilter] chunks=' + chunks.length, { from: f.dateFrom, to: f.dateTo });
     return chunks;
+  }
+
+  // usado pelo service no fallback também
+  function splitRange(range, daysPerChunk) {
+    return makeDayChunks(range.dateFrom, range.dateTo, daysPerChunk);
+  }
+
+  function applyToFilter(ctx, baseFilter, range) {
+    if (range && range.dateFrom) baseFilter[">=CALL_START_DATE"] = isoToSpace(range.dateFrom);
+    if (range && range.dateTo)   baseFilter["<=CALL_START_DATE"] = isoToSpace(range.dateTo);
+    return baseFilter;
   }
 
   App.modules.TelefoniaFilterPeriod = {
     buildRanges,
-    applyToFilter: buildBasePeriodFilter
+    splitRange,
+    applyToFilter
   };
 })(window);

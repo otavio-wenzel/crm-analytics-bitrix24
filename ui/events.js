@@ -1,41 +1,62 @@
 (function (global) {
-    const App  = global.App = global.App || {};
-    const refs = App.ui.refs || {};
+  const App  = global.App = global.App || {};
+  const refs = App.ui.refs || {};
 
-    // Marca subitem ativo visualmente
-    function setActiveSidebarButton(clickedBtn) {
-        if (!refs.sidebarSubBtns) return;
-        refs.sidebarSubBtns.forEach(btn => btn.classList.remove('is-active'));
-        if (clickedBtn) clickedBtn.classList.add('is-active');
+  function toggleModuleMenu(moduleBtn) {
+    const group = moduleBtn.closest('.sidebar-group');
+    if (!group) return;
+
+    const submenu = group.querySelector('.sidebar-submenu');
+    if (!submenu) return;
+
+    const isCollapsed = submenu.classList.contains('is-collapsed');
+
+    if (isCollapsed) {
+      submenu.classList.remove('is-collapsed');
+      moduleBtn.classList.add('is-expanded');
+    } else {
+      submenu.classList.add('is-collapsed');
+      moduleBtn.classList.remove('is-expanded');
     }
+  }
 
-    // Cliques em submenus (Telefonia etc.)
-    if (refs.sidebarSubBtns) {
-        refs.sidebarSubBtns.forEach(btn => {
-            btn.addEventListener('click', function (ev) {
-                ev.preventDefault();
-                const moduleId = this.getAttribute('data-module');
-                const viewId   = this.getAttribute('data-view');
-                setActiveSidebarButton(this);
-                if (App.setActiveModule) {
-                    App.setActiveModule(moduleId, viewId);
-                }
-            });
-        });
-    }
-
-    // Listener genérico para botão "Aplicar filtros" dos módulos
-    document.addEventListener('click', function (ev) {
-        const target = ev.target;
-        if (!target) return;
-
-        if (target.id === 'btn-apply-filters') {
-            ev.preventDefault();
-            const moduleId = App.state.activeModuleId || 'telefonia';
-            const mod = App.modules && App.modules[moduleId];
-            if (mod && typeof mod.loadAndRender === 'function') {
-                mod.loadAndRender(App.state.activeViewId || 'overview');
-            }
-        }
+  // Clique no módulo: só expande/colapsa
+  if (refs.sidebarModuleBtns) {
+    refs.sidebarModuleBtns.forEach(btn => {
+      btn.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        toggleModuleMenu(this);
+      });
     });
+  }
+
+  // Clique nos subitens: carrega view
+  if (refs.sidebarSubBtns) {
+    refs.sidebarSubBtns.forEach(btn => {
+      btn.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        const moduleId = this.getAttribute('data-module');
+        const viewId   = this.getAttribute('data-view');
+
+        if (App.setActiveModule) {
+          App.setActiveModule(moduleId, viewId);
+        }
+      });
+    });
+  }
+
+  // Botão Aplicar filtros (continua igual)
+  document.addEventListener('click', function (ev) {
+    const target = ev.target;
+    if (!target) return;
+
+    if (target.id === 'btn-apply-filters') {
+      ev.preventDefault();
+      const moduleId = App.state.activeModuleId;
+      const mod = App.modules && App.modules[moduleId];
+      if (mod && typeof mod.loadAndRender === 'function') {
+        mod.loadAndRender(App.state.activeViewId);
+      }
+    }
+  });
 })(window);

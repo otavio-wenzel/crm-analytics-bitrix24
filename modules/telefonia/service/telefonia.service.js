@@ -48,36 +48,19 @@
       } catch (e) {
         const msg = (e && e.message) ? e.message : String(e || '');
         if (msg === 'TIMEOUT') {
-          // fallback: subdivide chunk em 3 dias
+          // ✅ fallback: subdivide chunk em 3 dias usando o PeriodFilter (sem duplicar lógica aqui)
           log('[TelefoniaService] chunk TIMEOUT -> fallback 3 dias', r);
 
-          const subRanges = (function split3Days(dateFrom, dateTo) {
-            const out = [];
-            function addDays(iso, days) {
-              const d = new Date(iso);
-              d.setDate(d.getDate() + days);
-              const yyyy = d.getFullYear();
-              const mm   = String(d.getMonth() + 1).padStart(2,'0');
-              const dd   = String(d.getDate()).padStart(2,'0');
-              const hh   = String(d.getHours()).padStart(2,'0');
-              const mi   = String(d.getMinutes()).padStart(2,'0');
-              const ss   = String(d.getSeconds()).padStart(2,'0');
-              return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`;
-            }
-            let cursor = dateFrom;
-            while (new Date(cursor) <= new Date(dateTo)) {
-              const to3 = addDays(cursor, 3);
-              const capped = (new Date(to3) > new Date(dateTo)) ? dateTo : to3;
-              out.push({ dateFrom: cursor, dateTo: capped });
-              cursor = addDays(capped, 1);
-            }
-            return out;
-          })(r.dateFrom, r.dateTo);
+          // precisa existir no telefonia.filter.period.js:
+          // PeriodFilter.splitRange(range, daysPerChunk)
+          const subRanges = PeriodFilter.splitRange(r, 3);
 
           for (const sr of subRanges) {
             if (job && job.canceled) throw new Error('CANCELED');
+
             let sf = applyPipeline(ctx, {}, pipeline);
             sf = PeriodFilter.applyToFilter(ctx, sf, sr);
+
             const part2 = await Provider.getCalls(sf, job, { timeoutPerPageMs: 30000, maxTotalMs: 180000 });
             allCalls = allCalls.concat(part2 || []);
           }
