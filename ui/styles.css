@@ -154,3 +154,25 @@ body {
 .simple-table td.num {
   text-align: center;
 }
+
+.sidebar-submenu.is-collapsed {
+  display: none;
+}
+
+.sidebar-item-module {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* setinha opcional (visual) */
+.sidebar-item-module::after {
+  content: "▸";
+  opacity: 0.8;
+  font-size: 12px;
+  transform: translateY(1px);
+}
+
+.sidebar-item-module.is-expanded::after {
+  content: "▾";
+}

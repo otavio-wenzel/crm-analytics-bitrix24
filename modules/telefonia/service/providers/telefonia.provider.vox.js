@@ -5,6 +5,7 @@
   App.modules = App.modules || {};
   App.state = App.state || {};
 
+  // Paginação robusta: re-entra via step() e controla timeout total
   function callBx24ListAll(method, params, job, opts) {
     const timeoutPerPageMs = (opts && opts.timeoutPerPageMs) || 30000;
     const maxTotalMs       = (opts && opts.maxTotalMs) || 180000;
@@ -34,26 +35,35 @@
       function finishErr(err) {
         clearTimeout(watchdog);
         done = true;
-        reject(err);
+        reject(err instanceof Error ? err : new Error(String(err || 'ERRO')));
+      }
+
+      function step(result) {
+        if (done) return;
+
+        if (job && job.canceled) return finishErr(new Error('CANCELED'));
+        if ((Date.now() - startedAt) > maxTotalMs) return finishErr(new Error('TIMEOUT'));
+
+        if (result.error && result.error()) return finishErr(result.error());
+
+        const data = (typeof result.data === 'function') ? (result.data() || []) : [];
+        if (Array.isArray(data) && data.length) all.push(...data);
+
+        if (result.more && result.more()) {
+          arm();
+          result.next(); // chama esta MESMA callback novamente
+        } else {
+          finishOk();
+        }
       }
 
       arm();
 
       BX24.callMethod(method, params, function (result) {
-        if (done) return;
-
-        if (job && job.canceled) return finishErr(new Error('CANCELED'));
-        if ((Date.now() - startedAt) > maxTotalMs) return finishErr(new Error('TIMEOUT'));
-        if (result.error && result.error()) return finishErr(result.error());
-
-        const data = (typeof result.data === 'function') ? (result.data() || []) : [];
-        if (data.length) all.push(...data);
-
-        if (result.more && result.more()) {
-          arm();
-          result.next();
-        } else {
-          finishOk();
+        try {
+          step(result);
+        } catch (e) {
+          finishErr(e);
         }
       });
     });
@@ -73,15 +83,17 @@
     const TTL = 10 * 60 * 1000;
 
     App.state.telefoniaCache = App.state.telefoniaCache || {};
+
     if (App.state.telefoniaCache.users && (now - (App.state.telefoniaCache.usersTs || 0)) < TTL) {
       return App.state.telefoniaCache.users;
     }
 
+    // ✅ usar FILTER/SELECT (maiúsculo) para evitar comportamento inconsistente
     const users = await callBx24ListAll(
       'user.get',
-      { filter: { ACTIVE: 'Y' }, select: ['ID','NAME','LAST_NAME'] },
+      { FILTER: { ACTIVE: 'Y' }, SELECT: ['ID','NAME','LAST_NAME'] },
       job,
-      { timeoutPerPageMs: 30000, maxTotalMs: 60000 }
+      { timeoutPerPageMs: 30000, maxTotalMs: 90000 }
     );
 
     const normalized = (users || [])

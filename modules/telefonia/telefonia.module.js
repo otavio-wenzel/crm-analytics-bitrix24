@@ -107,35 +107,68 @@
   }
 
     async function loadCollaboratorsIntoSelect() {
-    const job = startNewCollabJob();
-    const sel = document.getElementById('filter-collaborator');
-    if (!sel) return;
+        const job = startNewCollabJob();
+        const sel = document.getElementById('filter-collaborator');
+        if (!sel) return;
 
-    sel.innerHTML = `<option value="all" selected>Todos</option>
-                    <option value="_loading" disabled>Carregando...</option>`;
+        // token para impedir que um load antigo sobrescreva um select novo
+        const token = String(job.id);
+        sel.dataset.loadToken = token;
 
-    try {
-        const users = await Service.getActiveCollaborators(job);
+        // preserva seleção atual se existir
+        const previousValue = sel.value || 'all';
 
-        // ✅ se foi cancelado, pelo menos limpa o "Carregando..."
-        if (job.canceled) {
-        sel.innerHTML = `<option value="all" selected>Todos</option>`;
-        return;
+        // estado inicial
+        sel.innerHTML = `
+            <option value="all" selected>Todos</option>
+            <option value="_loading" disabled>Carregando...</option>
+        `;
+
+        // helper: só atualiza se ainda for o mesmo load
+        function stillValid() {
+            const current = document.getElementById('filter-collaborator');
+            return current && current.dataset.loadToken === token;
         }
 
-        sel.innerHTML = `<option value="all" selected>Todos</option>`;
-        (users || []).forEach(u => {
-        const opt = document.createElement('option');
-        opt.value = u.ID;
-        opt.textContent = u.NAME;
-        sel.appendChild(opt);
-        });
+        try {
+            // timeout REAL de UI (independente do provider)
+            const users = await Promise.race([
+            Service.getActiveCollaborators(job),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT_COLLAB')), 20000))
+            ]);
 
-    } catch (e) {
-        if (!job.canceled) {
-        sel.innerHTML = `<option value="all" selected>Todos</option>`;
+            if (job.canceled || !stillValid()) return;
+
+            // remonta options
+            sel.innerHTML = `<option value="all">Todos</option>`;
+
+            (users || []).forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = String(u.ID);
+            opt.textContent = u.NAME;
+            sel.appendChild(opt);
+            });
+
+            // restaura seleção anterior se ainda existir
+            const exists = Array.from(sel.options).some(o => o.value === previousValue);
+            sel.value = exists ? previousValue : 'all';
+
+        } catch (e) {
+            if (!stillValid()) return;
+
+            const msg = (e && e.message) ? e.message : String(e || '');
+            log('[TelefoniaModule] colaboradores falhou', msg);
+
+            // fallback: deixa pelo menos "Todos"
+            sel.innerHTML = `<option value="all" selected>Todos</option>`;
+
+        } finally {
+            // GARANTE que nunca fica "Carregando..." preso
+            if (!stillValid()) return;
+
+            const loadingOpt = sel.querySelector('option[value="_loading"]');
+            if (loadingOpt) loadingOpt.remove();
         }
-    }
     }
 
   function computeDateRangeFromUI() {

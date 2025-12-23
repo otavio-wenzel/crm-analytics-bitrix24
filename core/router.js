@@ -14,41 +14,44 @@
         }
 
         App.state.activeModuleId = moduleId;
-        App.state.activeViewId   = viewId || 'overview';
+        App.state.activeViewId   = viewId || null;
 
-        // atualizar CSS de seleção no menu
-        updateSidebarSelection(moduleId, App.state.activeViewId);
+        updateSidebarSelection(moduleId, viewId);
 
-        // limpar filtros e conteúdo
+        // Se não tem view, tela em branco (não carrega nada)
+        if (!viewId) {
+            refs.filtersBarEl.innerHTML = '';
+            refs.dashboardContentEl.innerHTML =
+            '<div class="placeholder">Selecione um relatório no menu para exibir os dados.</div>';
+            return;
+        }
+
         refs.filtersBarEl.innerHTML       = '';
         refs.dashboardContentEl.innerHTML = '<div class="placeholder">Carregando...</div>';
 
-        // deixa o módulo desenhar filtros + dashboard
         if (typeof mod.renderFilters === 'function') {
-            mod.renderFilters(refs.filtersBarEl, App.state.activeViewId);
+            mod.renderFilters(refs.filtersBarEl, viewId);
         }
         if (typeof mod.loadAndRender === 'function') {
-            mod.loadAndRender(App.state.activeViewId)
-                .catch(err => {
-                    log('Erro em módulo ' + moduleId + ': ' + err);
-                    refs.dashboardContentEl.innerHTML =
-                        '<div class="placeholder">Erro ao carregar dados.</div>';
-                });
+            mod.loadAndRender(viewId)
+            .catch(err => {
+                log('Erro em módulo ' + moduleId + ': ' + err);
+                refs.dashboardContentEl.innerHTML =
+                '<div class="placeholder">Erro ao carregar dados.</div>';
+            });
         }
     }
 
     function updateSidebarSelection(moduleId, viewId) {
-        // módulo principal (botão grande)
         refs.sidebarModuleBtns.forEach(btn => {
             const m = btn.getAttribute('data-module');
             btn.classList.toggle('is-active', m === moduleId);
         });
 
-        // subitens
         refs.sidebarSubBtns.forEach(btn => {
             const m = btn.getAttribute('data-module');
             const v = btn.getAttribute('data-view');
-            btn.classList.toggle('is-active', m === moduleId && v === viewId);
+            btn.classList.toggle('is-active', !!viewId && m === moduleId && v === viewId);
         });
     }
 
