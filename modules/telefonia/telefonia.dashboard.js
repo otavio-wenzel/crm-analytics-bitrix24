@@ -1,6 +1,6 @@
 (function (global) {
   const App  = global.App = global.App || {};
-  const refs = App.ui.refs;
+  const refs = App.ui && App.ui.refs ? App.ui.refs : {};
 
   function formatHMS(totalSeconds) {
     const s = Math.max(0, parseInt(totalSeconds, 10) || 0);
@@ -24,7 +24,7 @@
       `<div class="placeholder">${message || 'Erro ao carregar dados.'}</div>`;
   }
 
-  function renderOverview(data, filters) {
+  function renderOverview(data) {
     if (!refs.dashboardContentEl) return;
     if (!data || !data.totals) {
       refs.dashboardContentEl.innerHTML =
@@ -32,19 +32,20 @@
       return;
     }
 
-    const totalHms = formatHMS(data.totals.totalDurationSeconds);
+    const t = data.totals;
+    const totalHms = formatHMS(t.totalDurationSeconds);
 
     let html = '';
     html += '<h3>Visão geral de chamadas</h3>';
     html += `<p>
-      Total de chamadas: ${data.totals.totalCalls}<br>
-      Chamadas recebidas (entrada): ${data.totals.inbound}<br>
-      Chamadas realizadas (saída): ${data.totals.outbound}<br>
+      Total de chamadas: ${t.totalCalls}<br>
+      Chamadas recebidas (entrada): ${t.inbound}<br>
+      Chamadas realizadas (saída): ${t.outbound}<br>
       Tempo total (hh:mm:ss): <strong>${totalHms}</strong>
-      ${typeof data.totals.unknown === 'number' ? `<br>Desconhecidas: ${data.totals.unknown}` : ''}
+      ${typeof t.unknown === 'number' ? `<br>Desconhecidas: ${t.unknown}` : ''}
     </p>`;
 
-    html += '<h4>Chamadas por usuário (todas as direções)</h4>';
+    html += '<h4>Chamadas por usuário</h4>';
     html += `
       <table class="simple-table">
         <thead>
@@ -58,25 +59,25 @@
         </thead>
         <tbody>
     `;
+
     (data.byUser || []).forEach(row => {
       const label = row.userName || row.userId;
-      const hms = formatHMS(row.totalDurationSeconds);
       html += `
         <tr>
           <td>${label}</td>
           <td>${row.total}</td>
           <td>${row.answered}</td>
           <td>${row.missed}</td>
-          <td>${hms}</td>
+          <td>${formatHMS(row.totalDurationSeconds)}</td>
         </tr>
       `;
     });
-    html += '</tbody></table>';
 
+    html += '</tbody></table>';
     refs.dashboardContentEl.innerHTML = html;
   }
 
-  function renderChamadasRecebidas(data, filters) {
+  function renderChamadasRecebidas(data) {
     if (!refs.dashboardContentEl) return;
     if (!data || !data.totals) {
       refs.dashboardContentEl.innerHTML =
@@ -84,15 +85,14 @@
       return;
     }
 
-    const totalHms = formatHMS(data.totals.totalDurationSeconds);
-
+    const t = data.totals;
     let html = '';
     html += '<h3>Chamadas recebidas</h3>';
     html += `<p>
-      Total de chamadas recebidas: ${data.totals.totalCalls}<br>
-      Atendidas: ${data.totals.answered}<br>
-      Perdidas: ${data.totals.missed}<br>
-      Tempo total (hh:mm:ss): <strong>${totalHms}</strong>
+      Total: ${t.totalCalls}<br>
+      Atendidas: ${t.answered}<br>
+      Perdidas: ${t.missed}<br>
+      Tempo total (hh:mm:ss): <strong>${formatHMS(t.totalDurationSeconds)}</strong>
     </p>`;
 
     html += '<h4>Por usuário</h4>';
@@ -109,25 +109,25 @@
         </thead>
         <tbody>
     `;
+
     (data.byUser || []).forEach(row => {
       const label = row.userName || row.userId;
-      const hms = formatHMS(row.totalDurationSeconds);
       html += `
         <tr>
           <td>${label}</td>
           <td>${row.total}</td>
           <td>${row.answered}</td>
           <td>${row.missed}</td>
-          <td>${hms}</td>
+          <td>${formatHMS(row.totalDurationSeconds)}</td>
         </tr>
       `;
     });
-    html += '</tbody></table>';
 
+    html += '</tbody></table>';
     refs.dashboardContentEl.innerHTML = html;
   }
 
-  function renderChamadasRealizadas(data, filters) {
+  function renderChamadasRealizadas(data) {
     if (!refs.dashboardContentEl) return;
     if (!data || !data.totals) {
       refs.dashboardContentEl.innerHTML =
@@ -135,15 +135,14 @@
       return;
     }
 
-    const totalHms = formatHMS(data.totals.totalDurationSeconds);
-
+    const t = data.totals;
     let html = '';
     html += '<h3>Chamadas realizadas (saída)</h3>';
     html += `<p>
-      Total de chamadas realizadas: ${data.totals.totalCalls}<br>
-      Atendidas: ${data.totals.answered}<br>
-      Não atendidas / perdidas: ${data.totals.missed}<br>
-      Tempo total (hh:mm:ss): <strong>${totalHms}</strong>
+      Total: ${t.totalCalls}<br>
+      Atendidas: ${t.answered}<br>
+      Não atendidas / perdidas: ${t.missed}<br>
+      Tempo total (hh:mm:ss): <strong>${formatHMS(t.totalDurationSeconds)}</strong>
     </p>`;
 
     html += '<h4>Por usuário</h4>';
@@ -160,22 +159,23 @@
         </thead>
         <tbody>
     `;
+
     (data.byUser || []).forEach(row => {
       const label = row.userName || row.userId;
-      const hms = formatHMS(row.totalDurationSeconds);
       html += `
         <tr>
           <td>${label}</td>
           <td>${row.total}</td>
           <td>${row.answered}</td>
           <td>${row.missed}</td>
-          <td>${hms}</td>
+          <td>${formatHMS(row.totalDurationSeconds)}</td>
         </tr>
       `;
     });
+
     html += '</tbody></table>';
 
-    // status (código técnico) com contagem + duração total por código
+    // status técnico por CALL_FAILED_CODE
     html += '<h4>Status (CALL_FAILED_CODE)</h4>';
     html += `
       <table class="simple-table">
@@ -188,21 +188,22 @@
         </thead>
         <tbody>
     `;
+
     (data.byStatus || []).forEach(row => {
-      const hms = formatHMS(row.totalDurationSeconds);
       html += `
         <tr>
           <td>${row.status}</td>
           <td>${row.count}</td>
-          <td>${hms}</td>
+          <td>${formatHMS(row.totalDurationSeconds)}</td>
         </tr>
       `;
     });
-    html += '</tbody></table>';
 
+    html += '</tbody></table>';
     refs.dashboardContentEl.innerHTML = html;
   }
 
+  App.modules = App.modules || {};
   App.modules.TelefoniaDashboard = {
     showLoading,
     renderError,

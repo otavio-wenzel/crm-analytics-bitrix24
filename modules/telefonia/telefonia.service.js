@@ -3,8 +3,13 @@
   const log = App.log || function(){};
 
   App.modules = App.modules || {};
+  App.state = App.state || {};
+  App.state.telefoniaCache = App.state.telefoniaCache || {
+    users: null,
+    usersTs: 0,
+    userNameMap: new Map()
+  };
 
-  // CALL_TYPE (Voximplant)
   const CALLTYPE_OUTGOING = 1;
   const CALLTYPE_INCOMING = 2;
   const CALLTYPE_INCOMING_REDIRECTED = 3;
@@ -13,13 +18,71 @@
     return (dt && typeof dt === 'string') ? dt.replace('T', ' ') : dt;
   }
 
-  function diffDays(fromIso, toIso) {
-    const a = new Date(fromIso);
-    const b = new Date(toIso);
-    const ms = b - a;
-    return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)));
+  function callBx24ListAll(method, params, job, opts) {
+    const timeoutPerPageMs = (opts && opts.timeoutPerPageMs) || 30000;
+    const maxTotalMs       = (opts && opts.maxTotalMs) || 180000;
+
+    const startedAt = Date.now();
+    const all = [];
+
+    return new Promise((resolve, reject) => {
+      let done = false;
+      let watchdog = null;
+
+      function arm() {
+        clearTimeout(watchdog);
+        watchdog = setTimeout(() => {
+          if (done) return;
+          done = true;
+          reject(new Error('TIMEOUT'));
+        }, timeoutPerPageMs);
+      }
+
+      function finishOk() {
+        clearTimeout(watchdog);
+        done = true;
+        resolve(all);
+      }
+
+      function finishErr(err) {
+        clearTimeout(watchdog);
+        done = true;
+        reject(err);
+      }
+
+      arm();
+
+      BX24.callMethod(method, params, function (result) {
+        if (done) return;
+
+        if (job && job.canceled) return finishErr(new Error('CANCELED'));
+        if ((Date.now() - startedAt) > maxTotalMs) return finishErr(new Error('TIMEOUT'));
+
+        if (result.error && result.error()) return finishErr(result.error());
+
+        const data = (typeof result.data === 'function') ? (result.data() || []) : [];
+        if (data.length) all.push(...data);
+
+        if (result.more && result.more()) {
+          arm();
+          result.next();
+        } else {
+          finishOk();
+        }
+      });
+    });
   }
 
+  // ===== pipeline de filtros =====
+  function buildVoxFilter(filters) {
+    const FILTER = {};
+    if (filters.collaboratorId) FILTER["PORTAL_USER_ID"] = String(filters.collaboratorId);
+    if (filters.dateFrom) FILTER[">=CALL_START_DATE"] = isoToSpace(filters.dateFrom);
+    if (filters.dateTo)   FILTER["<=CALL_START_DATE"] = isoToSpace(filters.dateTo);
+    return FILTER;
+  }
+
+  // ===== chunking de datas =====
   function addDays(iso, days) {
     const d = new Date(iso);
     d.setDate(d.getDate() + days);
@@ -32,124 +95,99 @@
     return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`;
   }
 
-  function callBx24ListAll(method, params, job, opts) {
-    const timeoutPerPageMs = (opts && opts.timeoutPerPageMs) || 20000;
-    const maxTotalMs       = (opts && opts.maxTotalMs) || 180000;
-    const startedAt = Date.now();
+  // ✅ NOVO: soma segundos (usado para fechar chunk sem “buracos”)
+  function addSeconds(iso, seconds) {
+    const d = new Date(iso);
+    d.setSeconds(d.getSeconds() + seconds);
+    const yyyy = d.getFullYear();
+    const mm   = String(d.getMonth() + 1).padStart(2,'0');
+    const dd   = String(d.getDate()).padStart(2,'0');
+    const hh   = String(d.getHours()).padStart(2,'0');
+    const mi   = String(d.getMinutes()).padStart(2,'0');
+    const ss   = String(d.getSeconds()).padStart(2,'0');
+    return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`;
+  }
 
-    return new Promise((resolve, reject) => {
-      const all = [];
-      let done = false;
-      let watchdog = null;
+  // ✅ CORRIGIDO: chunks contínuos, sem pular dias/horas/segundos
+  // Estratégia:
+  // - nextStart = cursorFrom + chunkDays
+  // - chunkEnd = nextStart - 1 segundo (fecha no 23:59:59 do dia anterior)
+  // - próximo cursorFrom = nextStart (sem addDays(cappedTo, 1))
+  function makeChunks(dateFrom, dateTo, chunkDays) {
+    const chunks = [];
+    let cursorFrom = dateFrom;
 
-      function armWatchdog() {
-        clearTimeout(watchdog);
-        watchdog = setTimeout(() => {
-          if (done) return;
-          done = true;
-          reject(new Error('TIMEOUT'));
-        }, timeoutPerPageMs);
-      }
+    while (new Date(cursorFrom) <= new Date(dateTo)) {
+      const nextStart = addDays(cursorFrom, chunkDays);
+      const chunkEnd  = addSeconds(nextStart, -1);
 
-      function finishOk(data) {
-        clearTimeout(watchdog);
-        done = true;
-        resolve(data);
-      }
+      const cappedTo = (new Date(chunkEnd) > new Date(dateTo)) ? dateTo : chunkEnd;
 
-      function finishErr(err) {
-        clearTimeout(watchdog);
-        done = true;
-        reject(err);
-      }
+      chunks.push({ dateFrom: cursorFrom, dateTo: cappedTo });
 
-      function step() {
-        if (done) return;
+      cursorFrom = nextStart;
+    }
 
-        if (job && job.canceled) return finishErr(new Error('CANCELED'));
-        if ((Date.now() - startedAt) > maxTotalMs) return finishErr(new Error('TIMEOUT'));
+    return chunks;
+  }
 
-        armWatchdog();
-
-        BX24.callMethod(method, params, function (result) {
-          if (done) return;
-
-          if (job && job.canceled) return finishErr(new Error('CANCELED'));
-          if (result.error && result.error()) return finishErr(result.error());
-
-          const data = (typeof result.data === 'function') ? (result.data() || []) : [];
-          if (data.length) all.push(...data);
-
-          if ((Date.now() - startedAt) > maxTotalMs) return finishErr(new Error('TIMEOUT'));
-
-          if (result.more && result.more()) {
-            armWatchdog();
-            result.next();
-          } else {
-            finishOk(all);
-          }
-        });
-      }
-
-      step();
+  async function fetchChunk(filters, job, chunk) {
+    const FILTER = buildVoxFilter({
+      ...filters,
+      dateFrom: chunk.dateFrom,
+      dateTo: chunk.dateTo
     });
+
+    log('[TelefoniaService] CHUNK FILTER', FILTER);
+
+    return await callBx24ListAll(
+      'voximplant.statistic.get',
+      { FILTER, SORT: 'CALL_START_DATE', ORDER: 'DESC' },
+      job,
+      // ✅ 365 dias pode precisar mais tempo total
+      { timeoutPerPageMs: 30000, maxTotalMs: 240000 }
+    );
   }
 
   async function fetchCallHistory(filters, job) {
-    const CHUNK_DAYS = 7;
+    if (filters.dateFrom && filters.dateTo) {
+      // chunk padrão 7 dias
+      const firstChunks = makeChunks(filters.dateFrom, filters.dateTo, 7);
 
-    const hasRange = !!(filters && filters.dateFrom && filters.dateTo);
-    const chunks = [];
+      let all = [];
+      for (const ch of firstChunks) {
+        if (job && job.canceled) throw new Error('CANCELED');
 
-    if (hasRange) {
-      const totalDays = diffDays(filters.dateFrom, filters.dateTo);
-      if (totalDays > CHUNK_DAYS) {
-        let cursorFrom = filters.dateFrom;
-        while (new Date(cursorFrom) <= new Date(filters.dateTo)) {
-          const cursorTo = addDays(cursorFrom, CHUNK_DAYS);
-          const cappedTo = (new Date(cursorTo) > new Date(filters.dateTo)) ? filters.dateTo : cursorTo;
-          chunks.push({ dateFrom: cursorFrom, dateTo: cappedTo });
-          cursorFrom = addDays(cappedTo, 1);
+        try {
+          const part = await fetchChunk(filters, job, ch);
+          all = all.concat(part || []);
+        } catch (e) {
+          const msg = (e && e.message) ? e.message : String(e || '');
+          if (msg === 'TIMEOUT') {
+            // fallback: quebra esse chunk em 3 dias
+            const fallbackChunks = makeChunks(ch.dateFrom, ch.dateTo, 3);
+            for (const fb of fallbackChunks) {
+              if (job && job.canceled) throw new Error('CANCELED');
+              const part2 = await fetchChunk(filters, job, fb);
+              all = all.concat(part2 || []);
+            }
+          } else {
+            throw e;
+          }
         }
-      } else {
-        chunks.push({ dateFrom: filters.dateFrom, dateTo: filters.dateTo });
       }
-    } else {
-      chunks.push({ dateFrom: null, dateTo: null });
+
+      log('[TelefoniaService] total calls = ' + all.length);
+      return all;
     }
 
-    let allCalls = [];
-
-    for (const c of chunks) {
-      if (job && job.canceled) throw new Error('CANCELED');
-
-      const FILTER = {};
-      if (c.dateFrom) FILTER[">=CALL_START_DATE"] = isoToSpace(c.dateFrom);
-      if (c.dateTo)   FILTER["<=CALL_START_DATE"] = isoToSpace(c.dateTo);
-
-      log('[TelefoniaService] voximplant.statistic.get FILTER', FILTER);
-
-      const calls = await callBx24ListAll(
-        'voximplant.statistic.get',
-        { FILTER, SORT: 'CALL_START_DATE', ORDER: 'DESC' },
-        job,
-        { timeoutPerPageMs: 20000, maxTotalMs: 180000 }
-      );
-
-      allCalls = allCalls.concat(calls || []);
-    }
-
-    log('[TelefoniaService] total calls (voximplant) = ' + allCalls.length);
-    return allCalls;
+    // Sem range (não deveria mais existir, já removemos "desde sempre")
+    return [];
   }
 
   function safeDurationSec(call) {
     const dur = parseInt(call.CALL_DURATION, 10);
     return Number.isFinite(dur) && dur > 0 ? dur : 0;
-  }
-
-  function isAnsweredFromVox(call) {
-    return safeDurationSec(call) > 0;
   }
 
   function directionBucket(call) {
@@ -158,8 +196,6 @@
     if (t === CALLTYPE_INCOMING || t === CALLTYPE_INCOMING_REDIRECTED) return 'inbound';
     return 'unknown';
   }
-
-  // ====== AGREGADORES COM DURAÇÃO ======
 
   function ensureUser(byUser, userId) {
     if (!byUser[userId]) {
@@ -198,20 +234,11 @@
 
       totals.totalDurationSeconds += durSec;
 
-      if (ans) {
-        u.answered++;
-        totals.answered++;
-      } else {
-        u.missed++;
-        totals.missed++;
-      }
+      if (ans) { u.answered++; totals.answered++; }
+      else { u.missed++; totals.missed++; }
     });
 
-    return {
-      totals,
-      byUser: Object.values(byUser),
-      byStatus: Object.values(byStatus)
-    };
+    return { totals, byUser: Object.values(byUser), byStatus: Object.values(byStatus) };
   }
 
   function aggregateInboundFromVox(calls) {
@@ -234,13 +261,8 @@
 
       totals.totalDurationSeconds += durSec;
 
-      if (ans) {
-        u.answered++;
-        totals.answered++;
-      } else {
-        u.missed++;
-        totals.missed++;
-      }
+      if (ans) { u.answered++; totals.answered++; }
+      else { u.missed++; totals.missed++; }
     });
 
     return { totals, byUser: Object.values(byUser) };
@@ -264,13 +286,8 @@
 
       totals.totalDurationSeconds += durSec;
 
-      if (ans) {
-        u.answered++;
-        totals.answered++;
-      } else {
-        u.missed++;
-        totals.missed++;
-      }
+      if (ans) { u.answered++; totals.answered++; }
+      else { u.missed++; totals.missed++; }
 
       const code = (c.CALL_FAILED_CODE || 'SEM_CODIGO').toString();
       if (!byStatus[code]) byStatus[code] = { status: code, count: 0, totalDurationSeconds: 0 };
@@ -289,7 +306,9 @@
     ));
     if (!ids.length) return rows;
 
-    const map = {};
+    const nameMap = App.state.telefoniaCache.userNameMap;
+    const missing = ids.filter(id => !nameMap.has(id));
+
     const CONCURRENCY = 5;
     let idx = 0;
 
@@ -307,32 +326,61 @@
       const u = list[0];
       if (u) {
         const fullName = (u.NAME + ' ' + (u.LAST_NAME || '')).trim();
-        map[id] = fullName || id;
+        nameMap.set(id, fullName ? `${fullName} (${id})` : id);
       }
     }
 
     async function worker() {
-      while (idx < ids.length) {
+      while (idx < missing.length) {
         if (job && job.canceled) throw new Error('CANCELED');
-        const id = ids[idx++];
+        const id = missing[idx++];
         try { await fetchOne(id); }
         catch (e) { log('[TelefoniaService] erro user.get ID=' + id, e); }
       }
     }
 
     const workers = [];
-    for (let i = 0; i < Math.min(CONCURRENCY, ids.length); i++) workers.push(worker());
+    for (let i = 0; i < Math.min(CONCURRENCY, missing.length); i++) workers.push(worker());
     await Promise.all(workers);
 
     rows.forEach(r => {
       const id = String(r.userId);
-      r.userName = map[id] ? `${map[id]} (${id})` : id;
+      r.userName = nameMap.get(id) || id;
     });
 
     return rows;
   }
 
+  async function getActiveCollaborators(job) {
+    const now = Date.now();
+    const TTL = 10 * 60 * 1000;
+
+    if (App.state.telefoniaCache.users && (now - App.state.telefoniaCache.usersTs) < TTL) {
+      return App.state.telefoniaCache.users;
+    }
+
+    const users = await callBx24ListAll(
+      'user.get',
+      { filter: { ACTIVE: 'Y' }, select: ['ID','NAME','LAST_NAME'] },
+      job,
+      { timeoutPerPageMs: 30000, maxTotalMs: 60000 }
+    );
+
+    const normalized = (users || [])
+      .map(u => ({
+        ID: String(u.ID),
+        NAME: ((u.NAME || '') + ' ' + (u.LAST_NAME || '')).trim() || String(u.ID)
+      }))
+      .sort((a,b) => a.NAME.localeCompare(b.NAME));
+
+    App.state.telefoniaCache.users = normalized;
+    App.state.telefoniaCache.usersTs = Date.now();
+    return normalized;
+  }
+
   const TelefoniaService = {
+    getActiveCollaborators,
+
     async fetchOverview(filters, job) {
       const calls = await fetchCallHistory(filters, job);
       const agg = aggregateOverviewFromVox(calls);
