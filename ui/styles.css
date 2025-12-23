@@ -1,0 +1,156 @@
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background-color: #f3f6fb;
+}
+
+/* Shell geral */
+.app-shell {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+/* Header */
+.app-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #217bd4;
+    color: #fff;
+    padding: 8px 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+.app-header-title {
+    font-size: 18px;
+    font-weight: 600;
+}
+.app-header-user {
+    font-size: 13px;
+    opacity: 0.9;
+}
+
+/* Corpo: sidebar + main */
+.app-body {
+    flex: 1;
+    display: flex;
+    min-height: 0; /* para flex scroll funcionar */
+}
+
+/* Sidebar lateral esquerda */
+.sidebar {
+    width: 220px;
+    background-color: #1f2a3c;
+    color: #fff;
+    padding: 12px 8px;
+    box-sizing: border-box;
+    overflow-y: auto;
+}
+
+.sidebar-section-title {
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #9fa8ba;
+    margin-bottom: 8px;
+    padding: 0 8px;
+}
+
+.sidebar-group {
+    margin-bottom: 12px;
+}
+
+.sidebar-item,
+.sidebar-subitem {
+    width: 100%;
+    border: none;
+    text-align: left;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    background: transparent;
+    color: #d0d7e8;
+}
+
+.sidebar-item:hover,
+.sidebar-subitem:hover {
+    background-color: rgba(255,255,255,0.08);
+}
+
+.sidebar-item.is-active,
+.sidebar-subitem.is-active {
+    background-color: #2e8ef6;
+    color: #fff;
+}
+
+/* Submenu */
+.sidebar-submenu {
+    margin-left: 8px;
+    margin-top: 4px;
+}
+
+/* Área principal */
+.main-content {
+    flex: 1;
+    padding: 16px;
+    box-sizing: border-box;
+    overflow-y: auto;
+}
+
+/* Barra de filtros */
+.filters-bar {
+    background-color: #fff;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    font-size: 13px;
+}
+
+/* Conteúdo do dashboard */
+.dashboard-content {
+    background-color: #fff;
+    border-radius: 6px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    min-height: 200px;
+    font-size: 13px;
+}
+
+/* Placeholder inicial */
+.placeholder {
+    color: #777;
+    font-style: italic;
+}
+
+.panel-block {
+    padding: 16px;
+    font-size: 13px;
+}
+
+.table-plain {
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.simple-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.simple-table th,
+.simple-table td {
+    padding: 4px 6px;
+    border-bottom: 1px solid #eee;
+    text-align: left;
+}
+.simple-table th {
+    background-color: #f5f7f9;
+    font-weight: 600;
+}
+
+.simple-table th.num,
+.simple-table td.num {
+  text-align: center;
+}

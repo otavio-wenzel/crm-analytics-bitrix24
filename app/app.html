@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>CRM BI Dashboard</title>
+    <script src="//api.bitrix24.com/api/v1/"></script>
+
+    <!-- estilos globais -->
+    <link rel="stylesheet" href="../ui/styles.css">
+</head>
+<body>
+    <div class="app-shell">
+
+        <!-- Header -->
+        <header class="app-header">
+            <div class="app-header-title" id="app-title">
+                CRM BI – Painel Administrativo
+            </div>
+            <div class="app-header-user" id="header-user-info">
+                <!-- Nome do usuário admin / info -->
+            </div>
+        </header>
+
+        <div class="app-body">
+            <!-- Menu lateral -->
+            <nav class="sidebar">
+                <div class="sidebar-section-title">
+                    Módulos
+                </div>
+
+                <!-- Módulo Telefonia -->
+                <div class="sidebar-group">
+                    <button class="sidebar-item sidebar-item-module is-active"
+                            data-module="telefonia"
+                            data-view="overview">
+                        📞 Telefonia
+                    </button>
+                    <div class="sidebar-submenu">
+                        <button class="sidebar-subitem is-active"
+                                data-module="telefonia"
+                                data-view="overview">
+                            Visão geral
+                        </button>
+                        <button class="sidebar-subitem"
+                                data-module="telefonia"
+                                data-view="chamadas_recebidas">
+                            Chamadas recebidas
+                        </button>
+                        <button class="sidebar-subitem"
+                                data-module="telefonia"
+                                data-view="chamadas_realizadas">
+                            Chamadas realizadas
+                        </button>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Área principal do dashboard -->
+            <main class="main-content">
+                <!-- Filtros dinâmicos (período, usuário, etc.) -->
+                <section class="filters-bar" id="filters-bar">
+                    <!-- O módulo ativo monta os filtros aqui -->
+                </section>
+
+                <!-- Conteúdo principal dos gráficos/tabelas -->
+                <section class="dashboard-content" id="dashboard-content">
+                    <div class="placeholder">
+                        Carregando módulo de Telefonia...
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <script src="../core/app-namespace.js"></script>
+    <script src="../core/logging.js"></script>
+    <script src="../core/url-utils.js"></script>
+
+    <script src="../ui/layout.js"></script>
+    <script src="../core/router.js"></script>
+
+    <!-- TELEFONIA (arquitetura nova) -->
+
+    <!-- dashboards -->
+    <script src="../modules/telefonia/dashboard/telefonia.dashboard.base.js"></script>
+    <script src="../modules/telefonia/dashboard/telefonia.dashboard.overview.js"></script>
+    <script src="../modules/telefonia/dashboard/telefonia.dashboard.inbound.js"></script>
+    <script src="../modules/telefonia/dashboard/telefonia.dashboard.outbound.js"></script>
+
+    <!-- service -->
+    <script src="../modules/telefonia/service/telefonia.service.core.js"></script>
+    <script src="../modules/telefonia/service/filters/telefonia.filter.collaborator.js"></script>
+    <script src="../modules/telefonia/service/filters/telefonia.filter.period.js"></script>
+    <script src="../modules/telefonia/service/providers/telefonia.provider.vox.js"></script>
+    <script src="../modules/telefonia/service/telefonia.service.js"></script>
+
+    <!-- module -->
+    <script src="../modules/telefonia/telefonia.module.js"></script>
+
+    <script src="../core/bitrix-init.js"></script>
+    <script src="../ui/events.js"></script>
+</body>
+</html>
