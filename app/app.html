@@ -79,8 +79,22 @@
     <script src="../ui/layout.js"></script>
     <script src="../core/router.js"></script>
 
-    <script src="../modules/telefonia/telefonia.service.js"></script>
-    <script src="../modules/telefonia/telefonia.dashboard.js"></script>
+    <!-- TELEFONIA (arquitetura nova) -->
+
+    <!-- dashboards -->
+    <script src="../modules/telefonia/dashboard/telefonia.dashboard.base.js"></script>
+    <script src="../modules/telefonia/dashboard/telefonia.dashboard.overview.js"></script>
+    <script src="../modules/telefonia/dashboard/telefonia.dashboard.inbound.js"></script>
+    <script src="../modules/telefonia/dashboard/telefonia.dashboard.outbound.js"></script>
+
+    <!-- service -->
+    <script src="../modules/telefonia/service/telefonia.service.core.js"></script>
+    <script src="../modules/telefonia/service/filters/telefonia.filter.collaborator.js"></script>
+    <script src="../modules/telefonia/service/filters/telefonia.filter.period.js"></script>
+    <script src="../modules/telefonia/service/providers/telefonia.provider.vox.js"></script>
+    <script src="../modules/telefonia/service/telefonia.service.js"></script>
+
+    <!-- module -->
     <script src="../modules/telefonia/telefonia.module.js"></script>
 
     <script src="../core/bitrix-init.js"></script>
