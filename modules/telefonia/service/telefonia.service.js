@@ -21,7 +21,6 @@
     "NÃO FAZ LOCAÇÃO",
     "CAIXA POSTAL"
   ];
-  const SEM_STATUS = "SEM_STATUS";
 
   function extractDispositionFromDescription(desc) {
     if (!desc) return null;
@@ -33,7 +32,7 @@
   }
 
   // =======================
-  // Helpers de número/tempo
+  // Helpers número/tempo (comercial + status)
   // =======================
   function normalizeNumber(raw) {
     if (!raw) return "";
@@ -64,6 +63,7 @@
 
   function callStartTs(call) {
     const dt = call.CALL_START_DATE || call.CALL_START_DATE_FORMATTED || call.CALL_START_DATE_SHORT || null;
+    // Voximplant costuma vir "YYYY-MM-DD HH:MM:SS"
     return dt ? new Date(String(dt).replace(" ", "T")).getTime() : 0;
   }
 
@@ -72,6 +72,7 @@
     return dt ? new Date(String(dt).replace(" ", "T")).getTime() : 0;
   }
 
+  // Index por (responsável|telefone) => lista de atividades ordenadas por horário
   function indexActivities(activities) {
     const map = new Map();
 
@@ -96,9 +97,11 @@
       arr.sort((x, y) => x.ts - y.ts);
       map.set(k, arr);
     }
+
     return map;
   }
 
+  // encontra a atividade mais próxima dentro de uma janela (ex: 10min)
   function matchDispositionForCall(call, actIndex, windowMs) {
     const resp = call.PORTAL_USER_ID ? String(call.PORTAL_USER_ID) : "0";
     const phone = extractPhoneFromCall(call);
@@ -146,29 +149,90 @@
     return await Provider.getCalls(filterObj, job, { timeoutPerPageMs: 30000, maxTotalMs: 180000 });
   }
 
-  function splitDays(dateFrom, dateTo, days) {
-    const out = [];
-    function addDays(iso, dds) {
-      const d = new Date(iso);
-      d.setDate(d.getDate() + dds);
-      const yyyy = d.getFullYear();
-      const mm   = String(d.getMonth() + 1).padStart(2,'0');
-      const dd   = String(d.getDate()).padStart(2,'0');
-      const hh   = String(d.getHours()).padStart(2,'0');
-      const mi   = String(d.getMinutes()).padStart(2,'0');
-      const ss   = String(d.getSeconds()).padStart(2,'0');
-      return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`;
-    }
-    let cursor = dateFrom;
-    while (new Date(cursor) <= new Date(dateTo)) {
-      const toN = addDays(cursor, days);
-      const capped = (new Date(toN) > new Date(dateTo)) ? dateTo : toN;
-      out.push({ dateFrom: cursor, dateTo: capped });
-      cursor = addDays(capped, 1);
-    }
-    return out;
+  // =======================
+  // ✅ ANTI-TIMEOUT DEFINITIVO (split recursivo do range)
+  // =======================
+  function fmtIso(d) {
+    const yyyy = d.getFullYear();
+    const mm   = String(d.getMonth() + 1).padStart(2,'0');
+    const dd   = String(d.getDate()).padStart(2,'0');
+    const hh   = String(d.getHours()).padStart(2,'0');
+    const mi   = String(d.getMinutes()).padStart(2,'0');
+    const ss   = String(d.getSeconds()).padStart(2,'0');
+    return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`;
   }
 
+  async function fetchRangeSafe(ctx, pipeline, range, job, depth) {
+    if (job && job.canceled) throw new Error('CANCELED');
+    depth = depth || 0;
+
+    let f = applyPipeline(ctx, {}, pipeline);
+    f = PeriodFilter.applyToFilter(ctx, f, range);
+
+    try {
+      const part = await tryGetCalls(f, job);
+      return part || [];
+    } catch (e) {
+      const msg = (e && e.message) ? e.message : String(e || '');
+      if (msg !== 'TIMEOUT') throw e;
+
+      // evita loop infinito
+      if (depth >= 12) throw e;
+
+      const start = new Date(range.dateFrom).getTime();
+      const end   = new Date(range.dateTo).getTime();
+      if (!start || !end || start >= end) throw e;
+
+      const mid = Math.floor((start + end) / 2);
+
+      // separa 1s pra não sobrepor
+      const leftEnd = new Date(mid - 1000);
+      const rightStart = new Date(mid + 1000);
+
+      const left = { dateFrom: range.dateFrom, dateTo: fmtIso(leftEnd) };
+      const right = { dateFrom: fmtIso(rightStart), dateTo: range.dateTo };
+
+      const a = await fetchRangeSafe(ctx, pipeline, left, job, depth + 1);
+      const b = await fetchRangeSafe(ctx, pipeline, right, job, depth + 1);
+      return a.concat(b);
+    }
+  }
+
+  // =======================
+  // Cache simples (memória) — 5 min
+  // =======================
+  const __cache = {
+    calls: new Map(),    // key -> {ts, data}
+    actIndex: new Map()  // key -> {ts, data}
+  };
+  const CACHE_TTL_MS = 5 * 60 * 1000;
+
+  function cacheGet(map, key) {
+    const hit = map.get(key);
+    if (!hit) return null;
+    if ((Date.now() - hit.ts) > CACHE_TTL_MS) {
+      map.delete(key);
+      return null;
+    }
+    return hit.data;
+  }
+
+  function cacheSet(map, key, data) {
+    map.set(key, { ts: Date.now(), data });
+  }
+
+  function stableKey(obj) {
+    return JSON.stringify(obj, Object.keys(obj).sort());
+  }
+
+  function normalizeIds(arr) {
+    if (!Array.isArray(arr)) return null;
+    return arr.map(String).sort();
+  }
+
+  // =======================
+  // Fetch de calls com chunking + anti-timeout
+  // =======================
   async function fetchWithChunking(filters, job) {
     const ctx = { filters: filters || {} };
     const pipeline = buildFilterPipeline();
@@ -180,36 +244,19 @@
     for (const r of ranges) {
       if (job && job.canceled) throw new Error('CANCELED');
 
-      let f = applyPipeline(ctx, {}, pipeline);
-      f = PeriodFilter.applyToFilter(ctx, f, r);
-
       try {
-        const part = await tryGetCalls(f, job);
+        const part = await fetchRangeSafe(ctx, pipeline, r, job, 0);
         allCalls = allCalls.concat(part || []);
         continue;
 
       } catch (e) {
         const msg = (e && e.message) ? e.message : String(e || '');
 
-        // TIMEOUT => fallback 3 dias
-        if (msg === 'TIMEOUT') {
-          const subRanges = splitDays(r.dateFrom, r.dateTo, 3);
-
-          for (const sr of subRanges) {
-            if (job && job.canceled) throw new Error('CANCELED');
-
-            let sf = applyPipeline(ctx, {}, pipeline);
-            sf = PeriodFilter.applyToFilter(ctx, sf, sr);
-
-            const part2 = await tryGetCalls(sf, job);
-            allCalls = allCalls.concat(part2 || []);
-          }
-          continue;
-        }
-
         // Fallback: multi-user array pode falhar no FILTER
         const hasMultiUsers = Array.isArray(filters.collaboratorIds) && filters.collaboratorIds.length > 1;
         if (hasMultiUsers) {
+          log('[TelefoniaService] FILTER com array de usuários pode falhar -> fallback por usuário', msg);
+
           for (const uid of filters.collaboratorIds) {
             if (job && job.canceled) throw new Error('CANCELED');
 
@@ -217,27 +264,19 @@
             const perCtx = { filters: perUserFilters };
             const perPipeline = buildFilterPipeline();
 
-            let uf = applyPipeline(perCtx, {}, perPipeline);
-            uf = PeriodFilter.applyToFilter(perCtx, uf, r);
-
-            try {
-              const partU = await tryGetCalls(uf, job);
-              allCalls = allCalls.concat(partU || []);
-            } catch (e2) {
-              const msg2 = (e2 && e2.message) ? e2.message : String(e2 || '');
-              if (msg2 === 'TIMEOUT') throw e2;
-              log('[TelefoniaService] erro fallback por usuário uid=' + uid, msg2);
-            }
+            const partU = await fetchRangeSafe(perCtx, perPipeline, r, job, 0);
+            allCalls = allCalls.concat(partU || []);
           }
           continue;
         }
 
         // Fallback inbound array pode falhar
         if ((filters.callType || 'none') === 'inbound') {
+          log('[TelefoniaService] inbound array pode falhar -> fallback CALL_TYPE=2 e 3', msg);
+
           const INCOMING = 2;
           const INCOMING_REDIRECTED = 3;
 
-          const twoCalls = [];
           for (const t of [INCOMING, INCOMING_REDIRECTED]) {
             if (job && job.canceled) throw new Error('CANCELED');
 
@@ -250,10 +289,8 @@
             tf["CALL_TYPE"] = t;
 
             const partT = await tryGetCalls(tf, job);
-            twoCalls.push(...(partT || []));
+            allCalls = allCalls.concat(partT || []);
           }
-
-          allCalls = allCalls.concat(twoCalls);
           continue;
         }
 
@@ -262,126 +299,6 @@
     }
 
     return allCalls;
-  }
-
-  // =======================
-  // ✅ Cache de colaboradores (para NÃO pesar e evitar timeout)
-  // =======================
-  const COLLAB_CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
-  App.state = App.state || {};
-  App.state.telefoniaCollabCache = App.state.telefoniaCollabCache || {
-    ts: 0,
-    users: null,
-    inflight: null
-  };
-
-  async function getActiveCollaboratorsCached(job) {
-    const cache = App.state.telefoniaCollabCache;
-    const now = Date.now();
-
-    if (cache.users && (now - cache.ts) < COLLAB_CACHE_TTL_MS) return cache.users;
-
-    if (cache.inflight) return await cache.inflight;
-
-    cache.inflight = (async () => {
-      const users = await Provider.getActiveCollaborators(job);
-      cache.users = users || [];
-      cache.ts = Date.now();
-      cache.inflight = null;
-      return cache.users;
-    })();
-
-    return await cache.inflight;
-  }
-
-  // =======================
-  // ✅ Garantir linhas zeradas (aplica em TODOS os módulos)
-  // =======================
-  function ensureZeroRows(byUserArray, userIdsWanted, templateRowFactory) {
-    const arr = Array.isArray(byUserArray) ? byUserArray : [];
-    const map = new Map();
-
-    for (const r of arr) {
-      const id = (r && (r.userId ?? r.USER_ID ?? r.ID)) != null ? String(r.userId ?? r.USER_ID ?? r.ID) : null;
-      if (id) map.set(id, r);
-    }
-
-    const out = [...arr];
-
-    for (const uid of (userIdsWanted || [])) {
-      const id = String(uid);
-      if (!map.has(id)) {
-        const zr = templateRowFactory(id);
-        out.push(zr);
-        map.set(id, zr);
-      }
-    }
-
-    // mantém ordem: alfabética por nome depois do enrich (ou por ID antes)
-    return out;
-  }
-
-  function tplOverview(userId) {
-    return {
-      userId: String(userId),
-      totalCalls: 0,
-      inbound: 0,
-      outbound: 0,
-      answered: 0,
-      missed: 0,
-      totalDurationSeconds: 0
-    };
-  }
-
-  function tplInbound(userId) {
-    return {
-      userId: String(userId),
-      totalCalls: 0,
-      answered: 0,
-      missed: 0,
-      totalDurationSeconds: 0
-    };
-  }
-
-  function tplOutbound(userId) {
-    return {
-      userId: String(userId),
-      totalCalls: 0,
-      answered: 0,
-      missed: 0,
-      totalDurationSeconds: 0
-    };
-  }
-
-  function tplCommercial(userId) {
-    return {
-      userId: String(userId),
-      totalCalls: 0,
-      inbound: 0,
-      outbound: 0,
-      answered: 0,
-      missed: 0,
-      totalDurationSeconds: 0,
-      uniqueNumbers: 0
-    };
-  }
-
-  async function resolveUserIdsForStandard(filters, job) {
-    const collabId = (filters && filters.collaboratorId) ? String(filters.collaboratorId) : 'all';
-    if (collabId && collabId !== 'all') return [collabId];
-
-    const users = await getActiveCollaboratorsCached(job);
-    return (users || []).map(u => String(u.ID));
-  }
-
-  async function resolveUserIdsForCommercial(filters, job) {
-    // se o filtro do comercial tem lista -> usa ela (mostra somente esses, inclusive zerados)
-    if (Array.isArray(filters.collaboratorIds) && filters.collaboratorIds.length) {
-      return filters.collaboratorIds.map(String);
-    }
-    // senão, é "Todos" -> lista total
-    const users = await getActiveCollaboratorsCached(job);
-    return (users || []).map(u => String(u.ID));
   }
 
   // =======================
@@ -474,32 +391,6 @@
     return { totals, byUser: rows };
   }
 
-  function buildStatusSummary(callsWithDisp, statusFilter) {
-    // sempre retorna linhas estáveis (inclui zeros quando status=all)
-    const keysAll = [...DISPOSITIONS, SEM_STATUS];
-    const counts = {};
-    keysAll.forEach(k => counts[k] = 0);
-
-    for (const c of (callsWithDisp || [])) {
-      const k = c.__DISPOSITION ? c.__DISPOSITION : SEM_STATUS;
-      if (counts[k] == null) counts[k] = 0;
-      counts[k]++;
-    }
-
-    function labelOf(k) {
-      return k === SEM_STATUS ? 'Sem status' : k;
-    }
-
-    if (!statusFilter || statusFilter === 'all') {
-      return keysAll.map(k => ({ status: labelOf(k), key: k, count: counts[k] || 0 }));
-    }
-
-    // status específico (inclui SEM_STATUS)
-    const k = statusFilter;
-    const row = { status: labelOf(k), key: k, count: counts[k] || 0 };
-    return [row];
-  }
-
   // =======================
   // Service Public API
   // =======================
@@ -511,11 +402,6 @@
     async fetchOverview(filters, job) {
       const calls = await fetchWithChunking(filters, job);
       const agg = Core.aggregateOverview(calls);
-
-      // ✅ garante colaboradores zerados
-      const wanted = await resolveUserIdsForStandard(filters, job);
-      agg.byUser = ensureZeroRows(agg.byUser, wanted, tplOverview);
-
       agg.byUser = await Core.enrichWithUserNames(agg.byUser, job);
       return agg;
     },
@@ -523,11 +409,6 @@
     async fetchChamadasRecebidas(filters, job) {
       const calls = await fetchWithChunking(filters, job);
       const agg = Core.aggregateInbound(calls);
-
-      // ✅ garante colaboradores zerados
-      const wanted = await resolveUserIdsForStandard(filters, job);
-      agg.byUser = ensureZeroRows(agg.byUser, wanted, tplInbound);
-
       agg.byUser = await Core.enrichWithUserNames(agg.byUser, job);
       return agg;
     },
@@ -535,31 +416,82 @@
     async fetchChamadasRealizadas(filters, job) {
       const calls = await fetchWithChunking(filters, job);
       const agg = Core.aggregateOutbound(calls);
-
-      // ✅ garante colaboradores zerados
-      const wanted = await resolveUserIdsForStandard(filters, job);
-      agg.byUser = ensureZeroRows(agg.byUser, wanted, tplOutbound);
-
       agg.byUser = await Core.enrichWithUserNames(agg.byUser, job);
       return agg;
     },
 
+    // ✅ Otimizado: status=all NÃO consulta CRM; status específico usa filtro server-side; SEM_STATUS usa 7x (dispositions)
     async fetchAnaliseComercial(filters, job) {
-      const calls = await fetchWithChunking(filters, job);
-
       const statusFilter = (filters && filters.status) ? filters.status : "all";
+      const collabIdsSorted = normalizeIds(filters.collaboratorIds);
+
+      // 1) calls cache (mexe em status sem refazer calls)
+      const callsKey = stableKey({
+        dateFrom: filters.dateFrom,
+        dateTo: filters.dateTo,
+        callType: filters.callType || 'none',
+        collaboratorIds: collabIdsSorted
+      });
+
+      let calls = cacheGet(__cache.calls, callsKey);
+      if (!calls) {
+        calls = await fetchWithChunking(filters, job);
+        cacheSet(__cache.calls, callsKey, calls);
+      }
+
+      // ✅ Se status = all, não faz join CRM (ganho enorme de performance)
+      if (statusFilter === "all") {
+        const agg0 = buildCommercialAgg(calls);
+        agg0.byUser = await Core.enrichWithUserNames(agg0.byUser, job);
+        return agg0;
+      }
 
       const ProviderCRM = App.modules.TelefoniaProviderCRM;
       if (!ProviderCRM || typeof ProviderCRM.getCallActivities !== 'function') {
         throw new Error('Provider CRM não carregado (TelefoniaProviderCRM). Verifique o import no app.html.');
       }
 
-      const respIds = Array.isArray(filters.collaboratorIds) ? filters.collaboratorIds : null;
+      const respIds = collabIdsSorted;
 
-      // join com CRM (disposition)
-      const activities = await ProviderCRM.getCallActivities(filters.dateFrom, filters.dateTo, respIds, job);
-      const actIndex = indexActivities(activities);
+      // 2) activities index cache
+      const needAllDispositions = (statusFilter === "SEM_STATUS");
+      const actKey = stableKey({
+        dateFrom: filters.dateFrom,
+        dateTo: filters.dateTo,
+        responsibleIds: respIds,
+        mode: needAllDispositions ? 'ALL_DISPOSITIONS' : ('ONE:' + statusFilter)
+      });
 
+      let actIndex = cacheGet(__cache.actIndex, actKey);
+
+      if (!actIndex) {
+        let activities = [];
+
+        if (needAllDispositions) {
+          // busca 7x (bem menos dado do que puxar tudo do período)
+          const promises = DISPOSITIONS.map(disp =>
+            ProviderCRM.getCallActivities(filters.dateFrom, filters.dateTo, respIds, disp, job)
+          );
+
+          const results = await Promise.all(promises);
+
+          // dedup por ID
+          const byId = new Map();
+          for (const arr of results) {
+            for (const a of (arr || [])) byId.set(String(a.ID), a);
+          }
+          activities = Array.from(byId.values());
+
+        } else {
+          // status específico: traz só ele (server-side)
+          activities = await ProviderCRM.getCallActivities(filters.dateFrom, filters.dateTo, respIds, statusFilter, job);
+        }
+
+        actIndex = indexActivities(activities);
+        cacheSet(__cache.actIndex, actKey, actIndex);
+      }
+
+      // 3) join + filtro
       const WINDOW_MS = 10 * 60 * 1000;
 
       const callsWithDisp = (calls || []).map(c => {
@@ -567,35 +499,16 @@
         return { ...c, __DISPOSITION: disp };
       });
 
-      // filtra por status
       let filteredCalls = callsWithDisp;
 
-      if (statusFilter !== "all") {
-        if (statusFilter === SEM_STATUS) {
-          filteredCalls = callsWithDisp.filter(c => !c.__DISPOSITION);
-        } else {
-          filteredCalls = callsWithDisp.filter(c => c.__DISPOSITION === statusFilter);
-        }
+      if (statusFilter === "SEM_STATUS") {
+        filteredCalls = callsWithDisp.filter(c => !c.__DISPOSITION);
+      } else {
+        filteredCalls = callsWithDisp.filter(c => c.__DISPOSITION === statusFilter);
       }
 
-      // agrega
       const agg = buildCommercialAgg(filteredCalls);
-
-      // ✅ resumo de status (pra 2ª tabela)
-      // - se status=all, retorna todos (inclui zeros)
-      // - se status=específico, retorna só aquele
-      agg.statusSummary = buildStatusSummary(
-        (statusFilter === "all" ? callsWithDisp : filteredCalls),
-        statusFilter
-      );
-
-      // ✅ garante colaboradores zerados (respeita seleção do comercial)
-      const wanted = await resolveUserIdsForCommercial(filters, job);
-      agg.byUser = ensureZeroRows(agg.byUser, wanted, tplCommercial);
-
-      // nomes
       agg.byUser = await Core.enrichWithUserNames(agg.byUser, job);
-
       return agg;
     }
   };
