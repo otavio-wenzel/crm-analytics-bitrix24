@@ -94,17 +94,9 @@
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
 
         ${isCommercial ? `
-          <div>
-            <label>Tipo de ligação:</label><br>
-            <select id="filter-calltype">
-              <option value="none" selected>Nenhum (todas)</option>
-              <option value="inbound">Recebidas</option>
-              <option value="outbound">Realizadas</option>
-            </select>
-          </div>
-
+          <!-- 1) Colaboradores primeiro -->
           <div style="min-width:320px; position:relative;">
-            <label>Usuários:</label><br>
+            <label>Colaboradores:</label><br>
 
             <button id="filter-users-btn" type="button"
               style="width:100%; text-align:left; padding:4px 6px; border:1px solid #ccc; border-radius:3px; background:#fff;">
@@ -113,8 +105,8 @@
 
             <div id="filter-users-panel"
               style="display:none; position:absolute; z-index:9999; top:54px; left:0; width:100%;
-                     background:#fff; border:1px solid #ccc; border-radius:4px; box-shadow:0 2px 10px rgba(0,0,0,.12);
-                     padding:8px; box-sizing:border-box;">
+                    background:#fff; border:1px solid #ccc; border-radius:4px; box-shadow:0 2px 10px rgba(0,0,0,.12);
+                    padding:8px; box-sizing:border-box;">
 
               <input id="filter-users-search" type="text" placeholder="Buscar..."
                 style="width:100%; box-sizing:border-box; margin-bottom:6px; padding:4px 6px;" />
@@ -134,6 +126,16 @@
                 <button id="filter-users-done" type="button">OK</button>
               </div>
             </div>
+          </div>
+
+          <!-- 2) Tipo de ligação depois -->
+          <div>
+            <label>Tipo de ligação:</label><br>
+            <select id="filter-calltype">
+              <option value="none" selected>Nenhum (todas)</option>
+              <option value="inbound">Recebidas</option>
+              <option value="outbound">Realizadas</option>
+            </select>
           </div>
 
           <div>
