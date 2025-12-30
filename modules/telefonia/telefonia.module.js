@@ -17,8 +17,14 @@
   let _collabJobSeq = 0;
 
   App.state.telefoniaJobs = App.state.telefoniaJobs || {
-    data:   { id: 0, canceled: false },
+    data: { id: 0, canceled: false },
     collab: { id: 0, canceled: false }
+  };
+
+  // estado do dropdown multi-seleção (comercial)
+  App.state.telefoniaCommercial = App.state.telefoniaCommercial || {
+    selectedUserIds: new Set(),  // Set<string>
+    usersCache: []               // [{ID, NAME}]
   };
 
   function startNewDataJob() {
@@ -35,54 +41,52 @@
     return job;
   }
 
-  // ====== DOM helpers ======
   function getFilterEls() {
     return {
-      // normal
+      // padrão
       collaboratorSel: document.getElementById('filter-collaborator'),
 
-      // comercial
-      callTypeSel: document.getElementById('filter-calltype'),
-      usersModeSel: document.getElementById('filter-users-mode'),
-      usersMultiSel: document.getElementById('filter-users'),
-      metricSel: document.getElementById('filter-metric'),
-      statusSel: document.getElementById('filter-status'),
-
-      // comum
+      // período
       periodSel: document.getElementById('filter-period'),
       fromInput: document.getElementById('filter-from'),
       toInput: document.getElementById('filter-to'),
-      applyBtn: document.getElementById('btn-apply-filters')
+      applyBtn: document.getElementById('btn-apply-filters'),
+
+      // comercial
+      callTypeSel: document.getElementById('filter-calltype'),
+      statusSel: document.getElementById('filter-status'),
+
+      usersBtn: document.getElementById('filter-users-btn'),
+      usersPanel: document.getElementById('filter-users-panel'),
+      usersSearch: document.getElementById('filter-users-search'),
+      usersList: document.getElementById('filter-users-list'),
+      usersClearBtn: document.getElementById('filter-users-clear'),
+      usersDoneBtn: document.getElementById('filter-users-done'),
+      usersAllCheck: document.getElementById('filter-users-all')
     };
   }
 
   function setUiLoadingState(isLoading) {
-    const {
-      collaboratorSel,
-      callTypeSel, usersModeSel, usersMultiSel, metricSel, statusSel,
-      periodSel, fromInput, toInput, applyBtn
-    } = getFilterEls();
+    const els = getFilterEls();
 
-    const disabled = !!isLoading;
+    [
+      els.collaboratorSel,
+      els.periodSel,
+      els.fromInput,
+      els.toInput,
+      els.applyBtn,
 
-    if (collaboratorSel) collaboratorSel.disabled = disabled;
+      els.callTypeSel,
+      els.statusSel,
+      els.usersBtn
+    ].forEach(el => {
+      if (el) el.disabled = !!isLoading;
+    });
 
-    if (callTypeSel)  callTypeSel.disabled  = disabled;
-    if (usersModeSel) usersModeSel.disabled = disabled;
-    if (usersMultiSel) usersMultiSel.disabled = disabled || (usersModeSel && usersModeSel.value !== 'select');
-    if (metricSel) metricSel.disabled = disabled;
-    if (statusSel) statusSel.disabled = true; // sempre desabilitado por enquanto
-
-    if (periodSel) periodSel.disabled = disabled;
-    if (fromInput) fromInput.disabled = disabled;
-    if (toInput)   toInput.disabled   = disabled;
-    if (applyBtn)  applyBtn.disabled  = disabled;
-
-    if (refs.sidebarSubBtns) refs.sidebarSubBtns.forEach(btn => btn.disabled = disabled);
-    if (refs.sidebarModuleBtns) refs.sidebarModuleBtns.forEach(btn => btn.disabled = disabled);
+    if (refs.sidebarSubBtns) refs.sidebarSubBtns.forEach(btn => btn.disabled = !!isLoading);
+    if (refs.sidebarModuleBtns) refs.sidebarModuleBtns.forEach(btn => btn.disabled = !!isLoading);
   }
 
-  // ====== render filtros ======
   function renderFilters(container, viewId) {
     const isCommercial = (viewId === 'analise_comercial');
 
@@ -99,27 +103,39 @@
             </select>
           </div>
 
-          <div>
+          <div style="min-width:320px; position:relative;">
             <label>Usuários:</label><br>
-            <select id="filter-users-mode">
-              <option value="all" selected>Todos</option>
-              <option value="select">Selecionar...</option>
-            </select>
-          </div>
 
-          <div>
-            <label>Seleção de usuários:</label><br>
-            <select id="filter-users" multiple size="6" disabled style="min-width:240px;">
-              <option value="_loading" disabled>Carregando...</option>
-            </select>
-          </div>
+            <!-- botão tipo "select" que abre o dropdown -->
+            <button id="filter-users-btn" type="button"
+              style="width:100%; text-align:left; padding:4px 6px; border:1px solid #ccc; border-radius:3px; background:#fff;">
+              Carregando...
+            </button>
 
-          <div>
-            <label>Métrica:</label><br>
-            <select id="filter-metric">
-              <option value="calls" selected>Qualquer (ligações)</option>
-              <option value="unique_numbers">Somente números únicos</option>
-            </select>
+            <!-- painel dropdown -->
+            <div id="filter-users-panel"
+              style="display:none; position:absolute; z-index:9999; top:54px; left:0; width:100%;
+                     background:#fff; border:1px solid #ccc; border-radius:4px; box-shadow:0 2px 10px rgba(0,0,0,.12);
+                     padding:8px; box-sizing:border-box;">
+
+              <input id="filter-users-search" type="text" placeholder="Buscar..."
+                style="width:100%; box-sizing:border-box; margin-bottom:6px; padding:4px 6px;" />
+
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                <input id="filter-users-all" type="checkbox">
+                <label for="filter-users-all" style="cursor:pointer;"><strong>Todos</strong></label>
+              </div>
+
+              <div id="filter-users-list"
+                style="max-height:180px; overflow:auto; border:1px solid #eee; padding:6px; border-radius:3px;">
+                <div class="placeholder">Carregando...</div>
+              </div>
+
+              <div style="display:flex; justify-content:space-between; margin-top:8px;">
+                <button id="filter-users-clear" type="button">Limpar</button>
+                <button id="filter-users-done" type="button">OK</button>
+              </div>
+            </div>
           </div>
 
           <div>
@@ -163,31 +179,22 @@
       </div>
     `;
 
+    // período: custom box
     const periodSel = document.getElementById('filter-period');
     const customBox = document.getElementById('custom-period-container');
-    if (periodSel && customBox) {
-      periodSel.addEventListener('change', function () {
-        customBox.style.display = (this.value === 'custom') ? 'inline-block' : 'none';
-      });
-    }
+    periodSel.addEventListener('change', function () {
+      customBox.style.display = (this.value === 'custom') ? 'inline-block' : 'none';
+    });
 
     if (isCommercial) {
-      const modeSel  = document.getElementById('filter-users-mode');
-      const usersSel = document.getElementById('filter-users');
-
-      if (modeSel && usersSel) {
-        modeSel.addEventListener('change', function () {
-          usersSel.disabled = (this.value !== 'select');
-        });
-      }
-
-      loadCollaboratorsForCommercial().catch(e => log('[TelefoniaModule] erro load comercial users', e));
+      wireCommercialUsersUI();
+      loadCollaboratorsForCommercial().catch(e => log('[TelefoniaModule] erro load comercial', e));
     } else {
       loadCollaboratorsIntoSelect().catch(e => log('[TelefoniaModule] erro load colaboradores', e));
     }
   }
 
-  // ====== load colaboradores: normal (select único) ======
+  // ====== COLABORADORES (view padrão) ======
   async function loadCollaboratorsIntoSelect() {
     const job = startNewCollabJob();
     const sel = document.getElementById('filter-collaborator');
@@ -217,7 +224,6 @@
       if (job.canceled || !stillValid()) return;
 
       sel.innerHTML = `<option value="all">Todos</option>`;
-
       (users || []).forEach(u => {
         const opt = document.createElement('option');
         opt.value = String(u.ID);
@@ -230,8 +236,6 @@
 
     } catch (e) {
       if (!stillValid()) return;
-      const msg = (e && e.message) ? e.message : String(e || '');
-      log('[TelefoniaModule] colaboradores falhou', msg);
       sel.innerHTML = `<option value="all" selected>Todos</option>`;
     } finally {
       if (!stillValid()) return;
@@ -240,24 +244,140 @@
     }
   }
 
-  // ====== load colaboradores: comercial (multi-select) ======
+  // ====== COMERCIAL: DROPDOWN MULTI-SELEÇÃO ÚNICO (com "Todos") ======
+  function wireCommercialUsersUI() {
+    const els = getFilterEls();
+    const btn = els.usersBtn;
+    const panel = els.usersPanel;
+    const search = els.usersSearch;
+    const list = els.usersList;
+    const clearBtn = els.usersClearBtn;
+    const doneBtn = els.usersDoneBtn;
+    const allCheck = els.usersAllCheck;
+
+    if (!btn || !panel || !search || !list || !clearBtn || !doneBtn || !allCheck) return;
+
+    function getAllUserIds() {
+      return (App.state.telefoniaCommercial.usersCache || []).map(u => String(u.ID));
+    }
+
+    function isAllSelected() {
+      const allIds = getAllUserIds();
+      if (!allIds.length) return false;
+      const selected = App.state.telefoniaCommercial.selectedUserIds;
+      return allIds.every(id => selected.has(id));
+    }
+
+    function updateBtnLabel() {
+      const selected = App.state.telefoniaCommercial.selectedUserIds;
+      const allIds = getAllUserIds();
+
+      if (!allIds.length) {
+        btn.textContent = 'Nenhum colaborador';
+        return;
+      }
+
+      if (selected.size === 0 || isAllSelected()) {
+        btn.textContent = 'Todos';
+        return;
+      }
+
+      btn.textContent = `${selected.size} selecionado(s)`;
+    }
+
+    function syncAllCheckbox() {
+      allCheck.checked = isAllSelected();
+    }
+
+    function syncChecksFromState() {
+      const selected = App.state.telefoniaCommercial.selectedUserIds;
+
+      // checkboxes de usuários
+      panel.querySelectorAll('input[type="checkbox"][data-user-check="1"]').forEach(ch => {
+        const id = String(ch.value);
+        ch.checked = selected.has(id);
+      });
+
+      syncAllCheckbox();
+      updateBtnLabel();
+    }
+
+    // toggle painel
+    btn.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      const open = panel.style.display !== 'none';
+      panel.style.display = open ? 'none' : 'block';
+      if (!open) search.focus();
+    });
+
+    // fecha clicando fora
+    document.addEventListener('click', function () {
+      panel.style.display = 'none';
+    });
+
+    panel.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+    });
+
+    // busca
+    search.addEventListener('input', function () {
+      const q = (this.value || '').toLowerCase();
+      const items = panel.querySelectorAll('[data-user-item="1"]');
+      items.forEach(it => {
+        const name = (it.getAttribute('data-name') || '').toLowerCase();
+        it.style.display = name.includes(q) ? '' : 'none';
+      });
+    });
+
+    // "Todos" marca/desmarca tudo
+    allCheck.addEventListener('change', function () {
+      const selected = App.state.telefoniaCommercial.selectedUserIds;
+      const allIds = getAllUserIds();
+
+      if (this.checked) {
+        selected.clear();
+        allIds.forEach(id => selected.add(id));
+      } else {
+        // ao desmarcar "Todos", deixamos vazio (não aplica filtro até escolher alguém)
+        selected.clear();
+      }
+
+      syncChecksFromState();
+    });
+
+    // limpar
+    clearBtn.addEventListener('click', function () {
+      App.state.telefoniaCommercial.selectedUserIds.clear();
+      syncChecksFromState();
+    });
+
+    // OK
+    doneBtn.addEventListener('click', function () {
+      panel.style.display = 'none';
+      updateBtnLabel();
+    });
+
+    // inicial
+    updateBtnLabel();
+  }
+
   async function loadCollaboratorsForCommercial() {
     const job = startNewCollabJob();
-    const sel = document.getElementById('filter-users');
-    if (!sel) return;
+    const els = getFilterEls();
+    if (!els.usersList || !els.usersBtn) return;
 
     const token = String(job.id);
-    sel.dataset.loadToken = token;
-
-    // preserva selecionados atuais (se trocar de view e voltar)
-    const prevSelected = new Set(Array.from(sel.selectedOptions || []).map(o => o.value));
-
-    sel.innerHTML = `<option value="_loading" disabled>Carregando...</option>`;
+    els.usersList.dataset.loadToken = token;
 
     function stillValid() {
-      const current = document.getElementById('filter-users');
-      return current && current.dataset.loadToken === token;
+      const cur = document.getElementById('filter-users-list');
+      return cur && cur.dataset.loadToken === token;
     }
+
+    els.usersBtn.textContent = 'Carregando...';
+    els.usersList.innerHTML = `<div class="placeholder">Carregando...</div>`;
 
     try {
       const users = await Promise.race([
@@ -267,29 +387,82 @@
 
       if (job.canceled || !stillValid()) return;
 
-      sel.innerHTML = '';
+      App.state.telefoniaCommercial.usersCache = users || [];
 
+      // ✅ default: "Todos" selecionado (ou seja: todos IDs marcados)
+      const selected = App.state.telefoniaCommercial.selectedUserIds;
+      const allIds = (users || []).map(u => String(u.ID));
+
+      if (selected.size === 0 && allIds.length) {
+        allIds.forEach(id => selected.add(id));
+      } else {
+        // se já havia seleção antiga, remove IDs que não existem mais
+        const valid = new Set(allIds);
+        Array.from(selected).forEach(id => { if (!valid.has(id)) selected.delete(id); });
+      }
+
+      let html = '';
       (users || []).forEach(u => {
-        const opt = document.createElement('option');
-        opt.value = String(u.ID);
-        opt.textContent = u.NAME;
-        if (prevSelected.has(opt.value)) opt.selected = true;
-        sel.appendChild(opt);
+        const id = String(u.ID);
+        const name = u.NAME || id;
+        const checked = selected.has(id) ? 'checked' : '';
+        html += `
+          <label data-user-item="1" data-name="${escapeHtml(name)}"
+                 style="display:flex; gap:8px; align-items:center; padding:2px 0;">
+            <input data-user-check="1" type="checkbox" value="${escapeHtml(id)}" ${checked}>
+            <span>${escapeHtml(name)}</span>
+          </label>
+        `;
       });
+
+      els.usersList.innerHTML = html || `<div class="placeholder">Nenhum colaborador ativo.</div>`;
+
+      // handler checks
+      els.usersList.querySelectorAll('input[type="checkbox"][data-user-check="1"]').forEach(ch => {
+        ch.addEventListener('change', function () {
+          const id = String(this.value);
+          if (this.checked) selected.add(id);
+          else selected.delete(id);
+
+          // atualiza checkbox "Todos"
+          const allCheck = document.getElementById('filter-users-all');
+          const btn = document.getElementById('filter-users-btn');
+
+          const allIdsNow = (App.state.telefoniaCommercial.usersCache || []).map(u => String(u.ID));
+          const allSelectedNow = allIdsNow.length && allIdsNow.every(x => selected.has(x));
+
+          if (allCheck) allCheck.checked = allSelectedNow;
+
+          if (btn) {
+            if (selected.size === 0 || allSelectedNow) btn.textContent = 'Todos';
+            else btn.textContent = `${selected.size} selecionado(s)`;
+          }
+        });
+      });
+
+      // ajusta "Todos" e label
+      const allCheck = document.getElementById('filter-users-all');
+      const allSelectedNow = allIds.length && allIds.every(x => selected.has(x));
+      if (allCheck) allCheck.checked = allSelectedNow;
+      els.usersBtn.textContent = allSelectedNow || selected.size === 0 ? 'Todos' : `${selected.size} selecionado(s)`;
 
     } catch (e) {
       if (!stillValid()) return;
-      const msg = (e && e.message) ? e.message : String(e || '');
-      log('[TelefoniaModule] comercial colaboradores falhou', msg);
-      sel.innerHTML = ''; // evita ficar preso no "Carregando..."
-    } finally {
-      if (!stillValid()) return;
-      const loadingOpt = sel.querySelector('option[value="_loading"]');
-      if (loadingOpt) loadingOpt.remove();
+      els.usersBtn.textContent = 'Todos';
+      els.usersList.innerHTML = `<div class="placeholder">Falha ao carregar colaboradores.</div>`;
     }
   }
 
-  // ====== período ======
+  function escapeHtml(s) {
+    return String(s || '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  // ====== RANGE DE DATAS ======
   function computeDateRangeFromUI() {
     const { periodSel, fromInput, toInput } = getFilterEls();
     const period = periodSel ? periodSel.value : 'today';
@@ -311,27 +484,27 @@
 
     if (period === 'today') {
       const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0,0,0);
-      const end   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23,59,59);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23,59,59);
       dateFrom = fmt(start);
-      dateTo   = fmt(end);
+      dateTo = fmt(end);
 
     } else if (period.endsWith('d') && period !== 'custom') {
       const days = parseInt(period.replace('d',''), 10) - 1;
       const startDate = new Date(now);
       startDate.setDate(now.getDate() - days);
       const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate(), 0,0,0);
-      const end   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23,59,59);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23,59,59);
       dateFrom = fmt(start);
-      dateTo   = fmt(end);
+      dateTo = fmt(end);
 
     } else if (period === 'custom') {
       const fromVal = fromInput && fromInput.value;
-      const toVal   = toInput && toInput.value;
+      const toVal = toInput && toInput.value;
 
       if (!fromVal || !toVal) return { error: 'Selecione data inicial e final.' };
 
       dateFrom = fromVal + 'T00:00:00';
-      dateTo   = toVal   + 'T23:59:59';
+      dateTo = toVal + 'T23:59:59';
 
       if (new Date(dateFrom) > new Date(dateTo)) {
         return { error: 'A data inicial não pode ser maior que a data final.' };
@@ -348,25 +521,26 @@
   }
 
   function getCommercialFiltersFromUI() {
-    const {
-      callTypeSel, usersModeSel, usersMultiSel, metricSel
-    } = getFilterEls();
+    const els = getFilterEls();
+    const callType = els.callTypeSel ? els.callTypeSel.value : 'none'; // none|inbound|outbound
 
-    const callType   = callTypeSel ? callTypeSel.value : 'none';
-    const usersMode  = usersModeSel ? usersModeSel.value : 'all';
-    const metric     = metricSel ? metricSel.value : 'calls';
+    // seleção (se todos ou nenhum => não aplica filtro)
+    const users = App.state.telefoniaCommercial.usersCache || [];
+    const allIds = users.map(u => String(u.ID));
+    const selected = Array.from(App.state.telefoniaCommercial.selectedUserIds || []);
 
-    let collaboratorIds = [];
-    if (usersMode === 'select' && usersMultiSel) {
-      collaboratorIds = Array.from(usersMultiSel.selectedOptions || [])
-        .map(o => o.value)
-        .filter(v => v && v !== '_loading');
+    let collaboratorIds = null;
+    const allSelected = allIds.length && allIds.every(id => (App.state.telefoniaCommercial.selectedUserIds || new Set()).has(id));
+
+    if (selected.length > 0 && !allSelected) {
+      collaboratorIds = selected;
+    } else {
+      collaboratorIds = null; // "Todos" / sem seleção => não filtra
     }
 
-    return { callType, usersMode, metric, collaboratorIds };
+    return { callType, collaboratorIds };
   }
 
-  // ====== load + render ======
   async function loadAndRender(viewId) {
     const job = startNewDataJob();
     App.state.activeViewId = viewId;
@@ -382,29 +556,25 @@
 
     try {
       let data;
-      let filters;
 
       if (viewId === 'analise_comercial') {
         const commercial = getCommercialFiltersFromUI();
-        filters = {
-          ...commercial,
+
+        const filters = {
           dateFrom: period.dateFrom,
-          dateTo: period.dateTo
-          // status: depois
+          dateTo: period.dateTo,
+
+          callType: commercial.callType,               // none|inbound|outbound
+          collaboratorIds: commercial.collaboratorIds  // array|null
+          // ✅ métrica removida daqui
         };
 
-        log('[TelefoniaModule] loadAndRender (commercial)', { viewId, ...filters, jobId: job.id });
-
+        log('[TelefoniaModule] loadAndRender COMERCIAL', { ...filters, jobId: job.id });
         data = await Service.fetchAnaliseComercial(filters, job);
 
       } else {
         const collaboratorId = getCollaboratorFromUI();
-
-        filters = {
-          collaboratorId,
-          dateFrom: period.dateFrom,
-          dateTo: period.dateTo
-        };
+        const filters = { collaboratorId, dateFrom: period.dateFrom, dateTo: period.dateTo };
 
         log('[TelefoniaModule] loadAndRender', { viewId, ...filters, jobId: job.id });
 
@@ -417,7 +587,12 @@
       if (job.canceled) return;
 
       const dash = Dashboards[viewId] || Dashboards.overview;
-      dash.render(data, filters);
+      if (!dash || typeof dash.render !== 'function') {
+        BaseDash.renderError(`Dashboard "${viewId}" não carregado. Verifique o import do script no app.html.`);
+        return;
+      }
+
+      dash.render(data);
 
     } catch (e) {
       if (job.canceled) return;
@@ -426,9 +601,9 @@
       log('[TelefoniaModule] ERRO', msg);
 
       if (msg === 'TIMEOUT') {
-        BaseDash.renderError('Timeout ao carregar dados. Tente um período menor ou selecione usuários específicos.');
+        BaseDash.renderError('Timeout ao carregar dados. Tente um período menor ou um colaborador/seleção mais específica.');
       } else {
-        BaseDash.renderError('Erro ao carregar dados de telefonia.');
+        BaseDash.renderError('Erro ao carregar dados de telefonia. ' + msg);
       }
     } finally {
       if (!job.canceled) {

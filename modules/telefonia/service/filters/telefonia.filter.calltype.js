@@ -2,31 +2,30 @@
   const App = global.App = global.App || {};
   App.modules = App.modules || {};
 
-  // Voximplant CALL_TYPE
-  // 1 outgoing
-  // 2 incoming
-  // 3 incoming redirected
-  const OUT = 1;
-  const IN  = 2;
-  const INR = 3;
+  // Voximplant:
+  // 1 = outgoing (realizadas)
+  // 2 = incoming (recebidas)
+  // 3 = incoming redirected (recebidas)
+  const OUTGOING = 1;
+  const INCOMING = 2;
+  const INCOMING_REDIRECTED = 3;
 
   function apply(ctx, baseFilter) {
-    const t = ctx?.filters?.callType;
+    const f = baseFilter || {};
 
-    // "none" / vazio => não aplica filtro
-    if (!t || t === 'none') return baseFilter;
+    // ✅ guard total (evita "Cannot read properties of undefined (reading 'callType')")
+    const filters = ctx && ctx.filters ? ctx.filters : {};
+    const callType = filters.callType || 'none'; // none|inbound|outbound
 
-    // OBS: alguns endpoints aceitam array em filtro. Se não aceitar, vamos tratar fallback no service.
-    if (t === 'outbound') {
-      baseFilter["CALL_TYPE"] = OUT;
-      return baseFilter;
+    if (callType === 'outbound') {
+      f["CALL_TYPE"] = OUTGOING;
+    } else if (callType === 'inbound') {
+      // Alguns portais aceitam array, outros não.
+      // O service fará fallback (2 chamadas) se der erro.
+      f["CALL_TYPE"] = [INCOMING, INCOMING_REDIRECTED];
     }
-    if (t === 'inbound') {
-      baseFilter["CALL_TYPE"] = [IN, INR];
-      return baseFilter;
-    }
 
-    return baseFilter;
+    return f;
   }
 
   App.modules.TelefoniaFilterCallType = { apply };
