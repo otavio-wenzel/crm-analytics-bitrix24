@@ -9,11 +9,133 @@
 
   const Provider = App.modules.TelefoniaProviderVox;
 
+  // =======================
+  // DISPOSITIONS (Call Disposition)
+  // =======================
+  const DISPOSITIONS = [
+    "REUNIÃO AGENDADA",
+    "FALEI COM SECRETÁRIA",
+    "FOLLOW-UP",
+    "RETORNO POR E-MAIL",
+    "NÃO TEM INTERESSE",
+    "NÃO FAZ LOCAÇÃO",
+    "CAIXA POSTAL"
+  ];
+
+  function extractDispositionFromDescription(desc) {
+    if (!desc) return null;
+    const raw = String(desc).toUpperCase();
+    for (const d of DISPOSITIONS) {
+      if (raw.includes(d)) return d;
+    }
+    return null;
+  }
+
+  // =======================
+  // Helpers número/tempo (comercial + status)
+  // =======================
+  function normalizeNumber(raw) {
+    if (!raw) return "";
+    return String(raw).trim().replace(/[^\d+]/g, "");
+  }
+
+  function extractPhoneFromCall(call) {
+    const cand =
+      call.PHONE_NUMBER ||
+      call.CALL_PHONE_NUMBER ||
+      call.PHONE ||
+      call.CALLER_ID ||
+      call.CALL_FROM ||
+      call.CALL_TO ||
+      call.NUMBER ||
+      "";
+    return normalizeNumber(cand);
+  }
+
+  function extractPhoneFromActivity(act) {
+    const comm = act.COMMUNICATIONS;
+    if (Array.isArray(comm) && comm.length) {
+      const v = comm[0].VALUE || comm[0].VALUE_NORMALIZED || "";
+      return normalizeNumber(v);
+    }
+    return "";
+  }
+
+  function callStartTs(call) {
+    const dt = call.CALL_START_DATE || call.CALL_START_DATE_FORMATTED || call.CALL_START_DATE_SHORT || null;
+    // Voximplant costuma vir "YYYY-MM-DD HH:MM:SS"
+    return dt ? new Date(String(dt).replace(" ", "T")).getTime() : 0;
+  }
+
+  function activityStartTs(act) {
+    const dt = act.START_TIME || null; // "YYYY-MM-DD HH:MM:SS"
+    return dt ? new Date(String(dt).replace(" ", "T")).getTime() : 0;
+  }
+
+  // Index por (responsável|telefone) => lista de atividades ordenadas por horário
+  function indexActivities(activities) {
+    const map = new Map();
+
+    (activities || []).forEach(a => {
+      const disp = extractDispositionFromDescription(a.DESCRIPTION);
+      if (!disp) return;
+
+      const resp = a.RESPONSIBLE_ID ? String(a.RESPONSIBLE_ID) : "0";
+      const phone = extractPhoneFromActivity(a);
+      if (!phone) return;
+
+      const ts = activityStartTs(a);
+      if (!ts) return;
+
+      const key = `${resp}|${phone}`;
+      const arr = map.get(key) || [];
+      arr.push({ ts, disposition: disp });
+      map.set(key, arr);
+    });
+
+    for (const [k, arr] of map.entries()) {
+      arr.sort((x, y) => x.ts - y.ts);
+      map.set(k, arr);
+    }
+
+    return map;
+  }
+
+  // encontra a atividade mais próxima dentro de uma janela (ex: 10min)
+  function matchDispositionForCall(call, actIndex, windowMs) {
+    const resp = call.PORTAL_USER_ID ? String(call.PORTAL_USER_ID) : "0";
+    const phone = extractPhoneFromCall(call);
+    if (!phone) return null;
+
+    const key = `${resp}|${phone}`;
+    const arr = actIndex.get(key);
+    if (!arr || !arr.length) return null;
+
+    const ts = callStartTs(call);
+    if (!ts) return null;
+
+    let best = null;
+    let bestDiff = Infinity;
+
+    for (const it of arr) {
+      const diff = Math.abs(it.ts - ts);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = it;
+      }
+    }
+
+    return (best && bestDiff <= windowMs) ? best.disposition : null;
+  }
+
+  // =======================
+  // Pipeline (Voximplant filters)
+  // =======================
   function buildFilterPipeline() {
     return [
       (ctx, base) => CollabFilter.apply(ctx, base),
       (ctx, base) => CallTypeFilter.apply(ctx, base),
-      // Period entra por range (chunk) abaixo
+      // Period entra por range (chunk)
     ];
   }
 
@@ -27,29 +149,90 @@
     return await Provider.getCalls(filterObj, job, { timeoutPerPageMs: 30000, maxTotalMs: 180000 });
   }
 
-  function splitDays(dateFrom, dateTo, days) {
-    const out = [];
-    function addDays(iso, dds) {
-      const d = new Date(iso);
-      d.setDate(d.getDate() + dds);
-      const yyyy = d.getFullYear();
-      const mm   = String(d.getMonth() + 1).padStart(2,'0');
-      const dd   = String(d.getDate()).padStart(2,'0');
-      const hh   = String(d.getHours()).padStart(2,'0');
-      const mi   = String(d.getMinutes()).padStart(2,'0');
-      const ss   = String(d.getSeconds()).padStart(2,'0');
-      return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`;
-    }
-    let cursor = dateFrom;
-    while (new Date(cursor) <= new Date(dateTo)) {
-      const toN = addDays(cursor, days);
-      const capped = (new Date(toN) > new Date(dateTo)) ? dateTo : toN;
-      out.push({ dateFrom: cursor, dateTo: capped });
-      cursor = addDays(capped, 1);
-    }
-    return out;
+  // =======================
+  // ✅ ANTI-TIMEOUT DEFINITIVO (split recursivo do range)
+  // =======================
+  function fmtIso(d) {
+    const yyyy = d.getFullYear();
+    const mm   = String(d.getMonth() + 1).padStart(2,'0');
+    const dd   = String(d.getDate()).padStart(2,'0');
+    const hh   = String(d.getHours()).padStart(2,'0');
+    const mi   = String(d.getMinutes()).padStart(2,'0');
+    const ss   = String(d.getSeconds()).padStart(2,'0');
+    return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`;
   }
 
+  async function fetchRangeSafe(ctx, pipeline, range, job, depth) {
+    if (job && job.canceled) throw new Error('CANCELED');
+    depth = depth || 0;
+
+    let f = applyPipeline(ctx, {}, pipeline);
+    f = PeriodFilter.applyToFilter(ctx, f, range);
+
+    try {
+      const part = await tryGetCalls(f, job);
+      return part || [];
+    } catch (e) {
+      const msg = (e && e.message) ? e.message : String(e || '');
+      if (msg !== 'TIMEOUT') throw e;
+
+      // evita loop infinito
+      if (depth >= 12) throw e;
+
+      const start = new Date(range.dateFrom).getTime();
+      const end   = new Date(range.dateTo).getTime();
+      if (!start || !end || start >= end) throw e;
+
+      const mid = Math.floor((start + end) / 2);
+
+      // separa 1s pra não sobrepor
+      const leftEnd = new Date(mid - 1000);
+      const rightStart = new Date(mid + 1000);
+
+      const left = { dateFrom: range.dateFrom, dateTo: fmtIso(leftEnd) };
+      const right = { dateFrom: fmtIso(rightStart), dateTo: range.dateTo };
+
+      const a = await fetchRangeSafe(ctx, pipeline, left, job, depth + 1);
+      const b = await fetchRangeSafe(ctx, pipeline, right, job, depth + 1);
+      return a.concat(b);
+    }
+  }
+
+  // =======================
+  // Cache simples (memória) — 5 min
+  // =======================
+  const __cache = {
+    calls: new Map(),    // key -> {ts, data}
+    actIndex: new Map()  // key -> {ts, data}
+  };
+  const CACHE_TTL_MS = 5 * 60 * 1000;
+
+  function cacheGet(map, key) {
+    const hit = map.get(key);
+    if (!hit) return null;
+    if ((Date.now() - hit.ts) > CACHE_TTL_MS) {
+      map.delete(key);
+      return null;
+    }
+    return hit.data;
+  }
+
+  function cacheSet(map, key, data) {
+    map.set(key, { ts: Date.now(), data });
+  }
+
+  function stableKey(obj) {
+    return JSON.stringify(obj, Object.keys(obj).sort());
+  }
+
+  function normalizeIds(arr) {
+    if (!Array.isArray(arr)) return null;
+    return arr.map(String).sort();
+  }
+
+  // =======================
+  // Fetch de calls com chunking + anti-timeout
+  // =======================
   async function fetchWithChunking(filters, job) {
     const ctx = { filters: filters || {} };
     const pipeline = buildFilterPipeline();
@@ -61,37 +244,15 @@
     for (const r of ranges) {
       if (job && job.canceled) throw new Error('CANCELED');
 
-      let f = applyPipeline(ctx, {}, pipeline);
-      f = PeriodFilter.applyToFilter(ctx, f, r);
-
-      log('[TelefoniaService] CHUNK FILTER', f);
-
       try {
-        const part = await tryGetCalls(f, job);
+        const part = await fetchRangeSafe(ctx, pipeline, r, job, 0);
         allCalls = allCalls.concat(part || []);
         continue;
 
       } catch (e) {
         const msg = (e && e.message) ? e.message : String(e || '');
 
-        // TIMEOUT => fallback 3 dias
-        if (msg === 'TIMEOUT') {
-          log('[TelefoniaService] chunk TIMEOUT -> fallback 3 dias', r);
-          const subRanges = splitDays(r.dateFrom, r.dateTo, 3);
-
-          for (const sr of subRanges) {
-            if (job && job.canceled) throw new Error('CANCELED');
-
-            let sf = applyPipeline(ctx, {}, pipeline);
-            sf = PeriodFilter.applyToFilter(ctx, sf, sr);
-
-            const part2 = await tryGetCalls(sf, job);
-            allCalls = allCalls.concat(part2 || []);
-          }
-          continue;
-        }
-
-        // ✅ Fallback 1: multi-user (collaboratorIds) pode não ser suportado em FILTER
+        // Fallback: multi-user array pode falhar no FILTER
         const hasMultiUsers = Array.isArray(filters.collaboratorIds) && filters.collaboratorIds.length > 1;
         if (hasMultiUsers) {
           log('[TelefoniaService] FILTER com array de usuários pode falhar -> fallback por usuário', msg);
@@ -103,33 +264,23 @@
             const perCtx = { filters: perUserFilters };
             const perPipeline = buildFilterPipeline();
 
-            let uf = applyPipeline(perCtx, {}, perPipeline);
-            uf = PeriodFilter.applyToFilter(perCtx, uf, r);
-
-            try {
-              const partU = await tryGetCalls(uf, job);
-              allCalls = allCalls.concat(partU || []);
-            } catch (e2) {
-              const msg2 = (e2 && e2.message) ? e2.message : String(e2 || '');
-              if (msg2 === 'TIMEOUT') throw e2;
-              log('[TelefoniaService] erro fallback por usuário uid=' + uid, msg2);
-            }
+            const partU = await fetchRangeSafe(perCtx, perPipeline, r, job, 0);
+            allCalls = allCalls.concat(partU || []);
           }
           continue;
         }
 
-        // ✅ Fallback 2: inbound usa CALL_TYPE=[2,3] (array) e pode falhar
+        // Fallback inbound array pode falhar
         if ((filters.callType || 'none') === 'inbound') {
           log('[TelefoniaService] inbound array pode falhar -> fallback CALL_TYPE=2 e 3', msg);
 
           const INCOMING = 2;
           const INCOMING_REDIRECTED = 3;
 
-          const twoCalls = [];
           for (const t of [INCOMING, INCOMING_REDIRECTED]) {
             if (job && job.canceled) throw new Error('CANCELED');
 
-            const perFilters = { ...filters, callType: 'none' }; // evita o filtro aplicar array
+            const perFilters = { ...filters, callType: 'none' };
             const perCtx = { filters: perFilters };
             const perPipeline = buildFilterPipeline();
 
@@ -138,10 +289,8 @@
             tf["CALL_TYPE"] = t;
 
             const partT = await tryGetCalls(tf, job);
-            twoCalls.push(...(partT || []));
+            allCalls = allCalls.concat(partT || []);
           }
-
-          allCalls = allCalls.concat(twoCalls);
           continue;
         }
 
@@ -152,7 +301,9 @@
     return allCalls;
   }
 
-  // ===== ANÁLISE COMERCIAL (ligações + contatos) =====
+  // =======================
+  // ANÁLISE COMERCIAL (ligações + contatos)
+  // =======================
   const OUTGOING = 1;
   const INCOMING = 2;
   const INCOMING_REDIRECTED = 3;
@@ -169,28 +320,9 @@
     return 'unknown';
   }
 
-  function normalizeNumber(raw) {
-    if (!raw) return '';
-    const s = String(raw).trim();
-    return s.replace(/[^\d+]/g, '');
-  }
-
-  function extractPhone(call) {
-    const cand =
-      call.PHONE_NUMBER ||
-      call.CALL_PHONE_NUMBER ||
-      call.PHONE ||
-      call.CALLER_ID ||
-      call.CALL_FROM ||
-      call.CALL_TO ||
-      call.NUMBER ||
-      '';
-    return normalizeNumber(cand);
-  }
-
   function buildCommercialAgg(calls) {
     const totals = {
-      totalCalls: calls.length,
+      totalCalls: (calls || []).length,
       inbound: 0,
       outbound: 0,
       unknown: 0,
@@ -241,7 +373,7 @@
       if (bucket === 'inbound') u.inbound++;
       else if (bucket === 'outbound') u.outbound++;
 
-      const num = extractPhone(c);
+      const num = extractPhoneFromCall(c);
       if (num) {
         globalNums.add(num);
         u._nums.add(num);
@@ -259,6 +391,9 @@
     return { totals, byUser: rows };
   }
 
+  // =======================
+  // Service Public API
+  // =======================
   const TelefoniaService = {
     getActiveCollaborators(job) {
       return Provider.getActiveCollaborators(job);
@@ -285,9 +420,94 @@
       return agg;
     },
 
+    // ✅ Otimizado: status=all NÃO consulta CRM; status específico usa filtro server-side; SEM_STATUS usa 7x (dispositions)
     async fetchAnaliseComercial(filters, job) {
-      const calls = await fetchWithChunking(filters, job);
-      const agg = buildCommercialAgg(calls);
+      const statusFilter = (filters && filters.status) ? filters.status : "all";
+      const collabIdsSorted = normalizeIds(filters.collaboratorIds);
+
+      // 1) calls cache (mexe em status sem refazer calls)
+      const callsKey = stableKey({
+        dateFrom: filters.dateFrom,
+        dateTo: filters.dateTo,
+        callType: filters.callType || 'none',
+        collaboratorIds: collabIdsSorted
+      });
+
+      let calls = cacheGet(__cache.calls, callsKey);
+      if (!calls) {
+        calls = await fetchWithChunking(filters, job);
+        cacheSet(__cache.calls, callsKey, calls);
+      }
+
+      // ✅ Se status = all, não faz join CRM (ganho enorme de performance)
+      if (statusFilter === "all") {
+        const agg0 = buildCommercialAgg(calls);
+        agg0.byUser = await Core.enrichWithUserNames(agg0.byUser, job);
+        return agg0;
+      }
+
+      const ProviderCRM = App.modules.TelefoniaProviderCRM;
+      if (!ProviderCRM || typeof ProviderCRM.getCallActivities !== 'function') {
+        throw new Error('Provider CRM não carregado (TelefoniaProviderCRM). Verifique o import no app.html.');
+      }
+
+      const respIds = collabIdsSorted;
+
+      // 2) activities index cache
+      const needAllDispositions = (statusFilter === "SEM_STATUS");
+      const actKey = stableKey({
+        dateFrom: filters.dateFrom,
+        dateTo: filters.dateTo,
+        responsibleIds: respIds,
+        mode: needAllDispositions ? 'ALL_DISPOSITIONS' : ('ONE:' + statusFilter)
+      });
+
+      let actIndex = cacheGet(__cache.actIndex, actKey);
+
+      if (!actIndex) {
+        let activities = [];
+
+        if (needAllDispositions) {
+          // busca 7x (bem menos dado do que puxar tudo do período)
+          const promises = DISPOSITIONS.map(disp =>
+            ProviderCRM.getCallActivities(filters.dateFrom, filters.dateTo, respIds, disp, job)
+          );
+
+          const results = await Promise.all(promises);
+
+          // dedup por ID
+          const byId = new Map();
+          for (const arr of results) {
+            for (const a of (arr || [])) byId.set(String(a.ID), a);
+          }
+          activities = Array.from(byId.values());
+
+        } else {
+          // status específico: traz só ele (server-side)
+          activities = await ProviderCRM.getCallActivities(filters.dateFrom, filters.dateTo, respIds, statusFilter, job);
+        }
+
+        actIndex = indexActivities(activities);
+        cacheSet(__cache.actIndex, actKey, actIndex);
+      }
+
+      // 3) join + filtro
+      const WINDOW_MS = 10 * 60 * 1000;
+
+      const callsWithDisp = (calls || []).map(c => {
+        const disp = matchDispositionForCall(c, actIndex, WINDOW_MS);
+        return { ...c, __DISPOSITION: disp };
+      });
+
+      let filteredCalls = callsWithDisp;
+
+      if (statusFilter === "SEM_STATUS") {
+        filteredCalls = callsWithDisp.filter(c => !c.__DISPOSITION);
+      } else {
+        filteredCalls = callsWithDisp.filter(c => c.__DISPOSITION === statusFilter);
+      }
+
+      const agg = buildCommercialAgg(filteredCalls);
       agg.byUser = await Core.enrichWithUserNames(agg.byUser, job);
       return agg;
     }

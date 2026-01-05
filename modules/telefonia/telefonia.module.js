@@ -94,29 +94,19 @@
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
 
         ${isCommercial ? `
-          <div>
-            <label>Tipo de ligação:</label><br>
-            <select id="filter-calltype">
-              <option value="none" selected>Nenhum (todas)</option>
-              <option value="inbound">Recebidas</option>
-              <option value="outbound">Realizadas</option>
-            </select>
-          </div>
-
+          <!-- 1) Colaboradores primeiro -->
           <div style="min-width:320px; position:relative;">
-            <label>Usuários:</label><br>
+            <label>Colaboradores:</label><br>
 
-            <!-- botão tipo "select" que abre o dropdown -->
             <button id="filter-users-btn" type="button"
               style="width:100%; text-align:left; padding:4px 6px; border:1px solid #ccc; border-radius:3px; background:#fff;">
               Carregando...
             </button>
 
-            <!-- painel dropdown -->
             <div id="filter-users-panel"
               style="display:none; position:absolute; z-index:9999; top:54px; left:0; width:100%;
-                     background:#fff; border:1px solid #ccc; border-radius:4px; box-shadow:0 2px 10px rgba(0,0,0,.12);
-                     padding:8px; box-sizing:border-box;">
+                    background:#fff; border:1px solid #ccc; border-radius:4px; box-shadow:0 2px 10px rgba(0,0,0,.12);
+                    padding:8px; box-sizing:border-box;">
 
               <input id="filter-users-search" type="text" placeholder="Buscar..."
                 style="width:100%; box-sizing:border-box; margin-bottom:6px; padding:4px 6px;" />
@@ -138,10 +128,28 @@
             </div>
           </div>
 
+          <!-- 2) Tipo de ligação depois -->
+          <div>
+            <label>Tipo de ligação:</label><br>
+            <select id="filter-calltype">
+              <option value="none" selected>Nenhum (todas)</option>
+              <option value="inbound">Recebidas</option>
+              <option value="outbound">Realizadas</option>
+            </select>
+          </div>
+
           <div>
             <label>Status:</label><br>
-            <select id="filter-status" disabled>
-              <option selected>Em breve</option>
+            <select id="filter-status">
+              <option value="all" selected>Todos</option>
+              <option value="REUNIÃO AGENDADA">REUNIÃO AGENDADA</option>
+              <option value="FALEI COM SECRETÁRIA">FALEI COM SECRETÁRIA</option>
+              <option value="FOLLOW-UP">FOLLOW-UP</option>
+              <option value="RETORNO POR E-MAIL">RETORNO POR E-MAIL</option>
+              <option value="NÃO TEM INTERESSE">NÃO TEM INTERESSE</option>
+              <option value="NÃO FAZ LOCAÇÃO">NÃO FAZ LOCAÇÃO</option>
+              <option value="CAIXA POSTAL">CAIXA POSTAL</option>
+              <option value="SEM_STATUS">Sem status</option>
             </select>
           </div>
         ` : `
@@ -179,7 +187,6 @@
       </div>
     `;
 
-    // período: custom box
     const periodSel = document.getElementById('filter-period');
     const customBox = document.getElementById('custom-period-container');
     periodSel.addEventListener('change', function () {
@@ -194,7 +201,6 @@
     }
   }
 
-  // ====== COLABORADORES (view padrão) ======
   async function loadCollaboratorsIntoSelect() {
     const job = startNewCollabJob();
     const sel = document.getElementById('filter-collaborator');
@@ -244,7 +250,6 @@
     }
   }
 
-  // ====== COMERCIAL: DROPDOWN MULTI-SELEÇÃO ÚNICO (com "Todos") ======
   function wireCommercialUsersUI() {
     const els = getFilterEls();
     const btn = els.usersBtn;
@@ -292,7 +297,6 @@
     function syncChecksFromState() {
       const selected = App.state.telefoniaCommercial.selectedUserIds;
 
-      // checkboxes de usuários
       panel.querySelectorAll('input[type="checkbox"][data-user-check="1"]').forEach(ch => {
         const id = String(ch.value);
         ch.checked = selected.has(id);
@@ -302,7 +306,6 @@
       updateBtnLabel();
     }
 
-    // toggle painel
     btn.addEventListener('click', function (ev) {
       ev.preventDefault();
       ev.stopPropagation();
@@ -312,7 +315,6 @@
       if (!open) search.focus();
     });
 
-    // fecha clicando fora
     document.addEventListener('click', function () {
       panel.style.display = 'none';
     });
@@ -321,7 +323,6 @@
       ev.stopPropagation();
     });
 
-    // busca
     search.addEventListener('input', function () {
       const q = (this.value || '').toLowerCase();
       const items = panel.querySelectorAll('[data-user-item="1"]');
@@ -331,7 +332,6 @@
       });
     });
 
-    // "Todos" marca/desmarca tudo
     allCheck.addEventListener('change', function () {
       const selected = App.state.telefoniaCommercial.selectedUserIds;
       const allIds = getAllUserIds();
@@ -340,26 +340,22 @@
         selected.clear();
         allIds.forEach(id => selected.add(id));
       } else {
-        // ao desmarcar "Todos", deixamos vazio (não aplica filtro até escolher alguém)
         selected.clear();
       }
 
       syncChecksFromState();
     });
 
-    // limpar
     clearBtn.addEventListener('click', function () {
       App.state.telefoniaCommercial.selectedUserIds.clear();
       syncChecksFromState();
     });
 
-    // OK
     doneBtn.addEventListener('click', function () {
       panel.style.display = 'none';
       updateBtnLabel();
     });
 
-    // inicial
     updateBtnLabel();
   }
 
@@ -389,14 +385,13 @@
 
       App.state.telefoniaCommercial.usersCache = users || [];
 
-      // ✅ default: "Todos" selecionado (ou seja: todos IDs marcados)
       const selected = App.state.telefoniaCommercial.selectedUserIds;
       const allIds = (users || []).map(u => String(u.ID));
 
+      // default: todos selecionados
       if (selected.size === 0 && allIds.length) {
         allIds.forEach(id => selected.add(id));
       } else {
-        // se já havia seleção antiga, remove IDs que não existem mais
         const valid = new Set(allIds);
         Array.from(selected).forEach(id => { if (!valid.has(id)) selected.delete(id); });
       }
@@ -417,14 +412,12 @@
 
       els.usersList.innerHTML = html || `<div class="placeholder">Nenhum colaborador ativo.</div>`;
 
-      // handler checks
       els.usersList.querySelectorAll('input[type="checkbox"][data-user-check="1"]').forEach(ch => {
         ch.addEventListener('change', function () {
           const id = String(this.value);
           if (this.checked) selected.add(id);
           else selected.delete(id);
 
-          // atualiza checkbox "Todos"
           const allCheck = document.getElementById('filter-users-all');
           const btn = document.getElementById('filter-users-btn');
 
@@ -440,10 +433,10 @@
         });
       });
 
-      // ajusta "Todos" e label
       const allCheck = document.getElementById('filter-users-all');
       const allSelectedNow = allIds.length && allIds.every(x => selected.has(x));
       if (allCheck) allCheck.checked = allSelectedNow;
+
       els.usersBtn.textContent = allSelectedNow || selected.size === 0 ? 'Todos' : `${selected.size} selecionado(s)`;
 
     } catch (e) {
@@ -462,7 +455,6 @@
       .replaceAll("'", '&#039;');
   }
 
-  // ====== RANGE DE DATAS ======
   function computeDateRangeFromUI() {
     const { periodSel, fromInput, toInput } = getFilterEls();
     const period = periodSel ? periodSel.value : 'today';
@@ -522,23 +514,22 @@
 
   function getCommercialFiltersFromUI() {
     const els = getFilterEls();
-    const callType = els.callTypeSel ? els.callTypeSel.value : 'none'; // none|inbound|outbound
+    const callType = els.callTypeSel ? els.callTypeSel.value : 'none';
 
-    // seleção (se todos ou nenhum => não aplica filtro)
     const users = App.state.telefoniaCommercial.usersCache || [];
     const allIds = users.map(u => String(u.ID));
-    const selected = Array.from(App.state.telefoniaCommercial.selectedUserIds || []);
+    const selectedSet = App.state.telefoniaCommercial.selectedUserIds || new Set();
+    const selected = Array.from(selectedSet);
+
+    const allSelected = allIds.length && allIds.every(id => selectedSet.has(id));
 
     let collaboratorIds = null;
-    const allSelected = allIds.length && allIds.every(id => (App.state.telefoniaCommercial.selectedUserIds || new Set()).has(id));
+    if (selected.length > 0 && !allSelected) collaboratorIds = selected;
+    else collaboratorIds = null;
 
-    if (selected.length > 0 && !allSelected) {
-      collaboratorIds = selected;
-    } else {
-      collaboratorIds = null; // "Todos" / sem seleção => não filtra
-    }
+    const status = els.statusSel ? els.statusSel.value : "all";
 
-    return { callType, collaboratorIds };
+    return { callType, collaboratorIds, status };
   }
 
   async function loadAndRender(viewId) {
@@ -556,17 +547,17 @@
 
     try {
       let data;
+      let filters = null;
 
       if (viewId === 'analise_comercial') {
         const commercial = getCommercialFiltersFromUI();
 
-        const filters = {
+        filters = {
           dateFrom: period.dateFrom,
           dateTo: period.dateTo,
-
-          callType: commercial.callType,               // none|inbound|outbound
-          collaboratorIds: commercial.collaboratorIds  // array|null
-          // ✅ métrica removida daqui
+          callType: commercial.callType,
+          collaboratorIds: commercial.collaboratorIds,
+          status: commercial.status
         };
 
         log('[TelefoniaModule] loadAndRender COMERCIAL', { ...filters, jobId: job.id });
@@ -574,7 +565,7 @@
 
       } else {
         const collaboratorId = getCollaboratorFromUI();
-        const filters = { collaboratorId, dateFrom: period.dateFrom, dateTo: period.dateTo };
+        filters = { collaboratorId, dateFrom: period.dateFrom, dateTo: period.dateTo };
 
         log('[TelefoniaModule] loadAndRender', { viewId, ...filters, jobId: job.id });
 
@@ -592,7 +583,7 @@
         return;
       }
 
-      dash.render(data);
+      dash.render(data, filters);
 
     } catch (e) {
       if (job.canceled) return;
