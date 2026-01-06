@@ -274,10 +274,10 @@
         if ((filters.callType || 'none') === 'inbound') {
           log('[TelefoniaService] inbound array pode falhar -> fallback CALL_TYPE=2 e 3', msg);
 
-          const INCOMING = 2;
-          const INCOMING_REDIRECTED = 3;
+          const INCOMING_LOCAL = 2;
+          const INCOMING_REDIRECTED_LOCAL = 3;
 
-          for (const t of [INCOMING, INCOMING_REDIRECTED]) {
+          for (const t of [INCOMING_LOCAL, INCOMING_REDIRECTED_LOCAL]) {
             if (job && job.canceled) throw new Error('CANCELED');
 
             const perFilters = { ...filters, callType: 'none' };
@@ -392,6 +392,36 @@
   }
 
   // =======================
+  // Status summary helper (fora do objeto, pra evitar erro de sintaxe)
+  // =======================
+  function buildStatusSummary(callsWithDisp) {
+    const counts = new Map();
+
+    // inicializa com 0 (opcional)
+    for (const d of DISPOSITIONS) counts.set(d, 0);
+    counts.set('SEM_STATUS', 0);
+
+    for (const c of (callsWithDisp || [])) {
+      const disp = c.__DISPOSITION;
+      if (disp && counts.has(disp)) counts.set(disp, (counts.get(disp) || 0) + 1);
+      else counts.set('SEM_STATUS', (counts.get('SEM_STATUS') || 0) + 1);
+    }
+
+    const out = [];
+
+    // mantém ordem fixa dos statuses
+    for (const d of DISPOSITIONS) {
+      const n = counts.get(d) || 0;
+      if (n > 0) out.push({ status: d, key: d, count: n });
+    }
+
+    const sem = counts.get('SEM_STATUS') || 0;
+    if (sem > 0) out.push({ status: 'Sem status', key: 'SEM_STATUS', count: sem });
+
+    return out;
+  }
+
+  // =======================
   // Service Public API
   // =======================
   const TelefoniaService = {
@@ -420,16 +450,16 @@
       return agg;
     },
 
-    // ✅ Otimizado: status=all NÃO consulta CRM; status específico usa filtro server-side; SEM_STATUS usa 7x (dispositions)
+    // ✅ Otimizado: agora SEMPRE consegue montar statusSummary sem puxar "tudo" do CRM
     async fetchAnaliseComercial(filters, job) {
       const statusFilter = (filters && filters.status) ? filters.status : "all";
-      const collabIdsSorted = normalizeIds(filters.collaboratorIds);
+      const collabIdsSorted = normalizeIds(filters && filters.collaboratorIds);
 
       // 1) calls cache (mexe em status sem refazer calls)
       const callsKey = stableKey({
-        dateFrom: filters.dateFrom,
-        dateTo: filters.dateTo,
-        callType: filters.callType || 'none',
+        dateFrom: filters && filters.dateFrom,
+        dateTo: filters && filters.dateTo,
+        callType: (filters && filters.callType) ? filters.callType : 'none',
         collaboratorIds: collabIdsSorted
       });
 
@@ -439,25 +469,29 @@
         cacheSet(__cache.calls, callsKey, calls);
       }
 
-      // ✅ Se status = all, não faz join CRM (ganho enorme de performance)
-      if (statusFilter === "all") {
-        const agg0 = buildCommercialAgg(calls);
-        agg0.byUser = await Core.enrichWithUserNames(agg0.byUser, job);
-        return agg0;
-      }
-
       const ProviderCRM = App.modules.TelefoniaProviderCRM;
       if (!ProviderCRM || typeof ProviderCRM.getCallActivities !== 'function') {
         throw new Error('Provider CRM não carregado (TelefoniaProviderCRM). Verifique o import no app.html.');
       }
 
-      const respIds = collabIdsSorted;
+      // ✅ Precisamos de responsibleIds pra indexar por responsável.
+      // Se vier null (todos), buscamos a lista de ativos (já tem cache no Provider Vox).
+      let respIds = collabIdsSorted;
 
-      // 2) activities index cache
-      const needAllDispositions = (statusFilter === "SEM_STATUS");
+      if (!Array.isArray(respIds) || respIds.length === 0) {
+        const active = await Provider.getActiveCollaborators(job);
+        respIds = (active || []).map(u => String(u.ID)).sort();
+      }
+
+      // 2) decidir o modo de fetch do CRM
+      // - all: precisamos dos 7 statuses pra montar a tabela
+      // - SEM_STATUS: precisamos dos 7 statuses pra saber quem NÃO tem
+      // - status específico: podemos puxar só 1 status
+      const needAllDispositions = (statusFilter === "all" || statusFilter === "SEM_STATUS");
+
       const actKey = stableKey({
-        dateFrom: filters.dateFrom,
-        dateTo: filters.dateTo,
+        dateFrom: filters && filters.dateFrom,
+        dateTo: filters && filters.dateTo,
         responsibleIds: respIds,
         mode: needAllDispositions ? 'ALL_DISPOSITIONS' : ('ONE:' + statusFilter)
       });
@@ -468,7 +502,6 @@
         let activities = [];
 
         if (needAllDispositions) {
-          // busca 7x (bem menos dado do que puxar tudo do período)
           const promises = DISPOSITIONS.map(disp =>
             ProviderCRM.getCallActivities(filters.dateFrom, filters.dateTo, respIds, disp, job)
           );
@@ -483,7 +516,7 @@
           activities = Array.from(byId.values());
 
         } else {
-          // status específico: traz só ele (server-side)
+          // status específico
           activities = await ProviderCRM.getCallActivities(filters.dateFrom, filters.dateTo, respIds, statusFilter, job);
         }
 
@@ -491,7 +524,7 @@
         cacheSet(__cache.actIndex, actKey, actIndex);
       }
 
-      // 3) join + filtro
+      // 3) join calls x activities
       const WINDOW_MS = 10 * 60 * 1000;
 
       const callsWithDisp = (calls || []).map(c => {
@@ -499,16 +532,25 @@
         return { ...c, __DISPOSITION: disp };
       });
 
+      // 4) aplica filtro de status
       let filteredCalls = callsWithDisp;
 
       if (statusFilter === "SEM_STATUS") {
         filteredCalls = callsWithDisp.filter(c => !c.__DISPOSITION);
-      } else {
+      } else if (statusFilter !== "all") {
         filteredCalls = callsWithDisp.filter(c => c.__DISPOSITION === statusFilter);
       }
 
+      // 5) agrega e devolve com statusSummary
       const agg = buildCommercialAgg(filteredCalls);
       agg.byUser = await Core.enrichWithUserNames(agg.byUser, job);
+
+      // ✅ tabela de status deve refletir "o filtro atual"
+      // - all: mostra distribuição completa
+      // - status específico: normalmente vira 1 linha
+      // - sem status: normalmente vira 1 linha
+      agg.statusSummary = buildStatusSummary(filteredCalls);
+
       return agg;
     }
   };
