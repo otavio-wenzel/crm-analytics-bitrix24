@@ -1,3 +1,4 @@
+//telefonia.module.js
 (function (global) {
   const App  = global.App = global.App || {};
   const log  = App.log || function(){};
@@ -96,7 +97,7 @@
         ${isCommercial ? `
           <!-- 1) Colaboradores primeiro -->
           <div style="min-width:320px; position:relative;">
-            <label>Colaboradores:</label><br>
+            <label>Colaborador:</label><br>
 
             <button id="filter-users-btn" type="button"
               style="width:100%; text-align:left; padding:4px 6px; border:1px solid #ccc; border-radius:3px; background:#fff;">
@@ -132,7 +133,7 @@
           <div>
             <label>Tipo de ligação:</label><br>
             <select id="filter-calltype">
-              <option value="none" selected>Nenhum (todas)</option>
+              <option value="none" selected>Todas</option>
               <option value="inbound">Recebidas</option>
               <option value="outbound">Realizadas</option>
             </select>

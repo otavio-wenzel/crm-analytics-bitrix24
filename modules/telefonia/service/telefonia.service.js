@@ -1,3 +1,4 @@
+// telefonia.service.js
 (function (global) {
   const App = global.App = global.App || {};
   const log = App.log || function(){};
@@ -63,7 +64,6 @@
 
   function callStartTs(call) {
     const dt = call.CALL_START_DATE || call.CALL_START_DATE_FORMATTED || call.CALL_START_DATE_SHORT || null;
-    // Voximplant costuma vir "YYYY-MM-DD HH:MM:SS"
     return dt ? new Date(String(dt).replace(" ", "T")).getTime() : 0;
   }
 
@@ -176,7 +176,6 @@
       const msg = (e && e.message) ? e.message : String(e || '');
       if (msg !== 'TIMEOUT') throw e;
 
-      // evita loop infinito
       if (depth >= 12) throw e;
 
       const start = new Date(range.dateFrom).getTime();
@@ -185,7 +184,6 @@
 
       const mid = Math.floor((start + end) / 2);
 
-      // separa 1s pra não sobrepor
       const leftEnd = new Date(mid - 1000);
       const rightStart = new Date(mid + 1000);
 
@@ -230,6 +228,13 @@
     return arr.map(String).sort();
   }
 
+  // ✅ NOVO: invalidação central do cache (chamado pelo watcher / UI)
+  function invalidateCache() {
+    __cache.calls.clear();
+    __cache.actIndex.clear();
+    // (se no futuro tiver mais cache, limpa aqui)
+  }
+
   // =======================
   // Fetch de calls com chunking + anti-timeout
   // =======================
@@ -252,7 +257,6 @@
       } catch (e) {
         const msg = (e && e.message) ? e.message : String(e || '');
 
-        // Fallback: multi-user array pode falhar no FILTER
         const hasMultiUsers = Array.isArray(filters.collaboratorIds) && filters.collaboratorIds.length > 1;
         if (hasMultiUsers) {
           log('[TelefoniaService] FILTER com array de usuários pode falhar -> fallback por usuário', msg);
@@ -270,7 +274,6 @@
           continue;
         }
 
-        // Fallback inbound array pode falhar
         if ((filters.callType || 'none') === 'inbound') {
           log('[TelefoniaService] inbound array pode falhar -> fallback CALL_TYPE=2 e 3', msg);
 
@@ -397,7 +400,6 @@
   function buildStatusSummary(callsWithDisp) {
     const counts = new Map();
 
-    // inicializa com 0 (opcional)
     for (const d of DISPOSITIONS) counts.set(d, 0);
     counts.set('SEM_STATUS', 0);
 
@@ -409,7 +411,6 @@
 
     const out = [];
 
-    // mantém ordem fixa dos statuses
     for (const d of DISPOSITIONS) {
       const n = counts.get(d) || 0;
       if (n > 0) out.push({ status: d, key: d, count: n });
@@ -422,9 +423,111 @@
   }
 
   // =======================
+  // ✅ WATCHER (poll leve em background)
+  // =======================
+  const __watcher = {
+    timer: null,
+    lastFp: null,
+    opts: null,
+    running: false
+  };
+
+  function makeCallFingerprint(call) {
+    if (!call) return null;
+    const id  = call.CALL_ID || call.ID || '';
+    const dt  = call.CALL_START_DATE || call.CALL_START_DATE_FORMATTED || call.CALL_START_DATE_SHORT || '';
+    const uid = call.PORTAL_USER_ID || '';
+    const num = call.PHONE_NUMBER || call.CALL_PHONE_NUMBER || call.PHONE || call.CALL_FROM || call.CALL_TO || '';
+    const dur = call.CALL_DURATION || '';
+    return `${id}|${dt}|${uid}|${num}|${dur}`;
+  }
+
+  function buildWatcherFilter(lookbackHours) {
+    const to = new Date();
+    const from = new Date(Date.now() - (Math.max(1, lookbackHours || 48) * 60 * 60 * 1000));
+
+    // ✅ campos padrão de filtro do Vox implant (usados normalmente no PeriodFilter)
+    return {
+      CALL_START_DATE_from: fmtIso(from),
+      CALL_START_DATE_to: fmtIso(to)
+    };
+  }
+
+  async function watcherTick() {
+    if (!__watcher.running) return;
+    if (__watcher.opts && __watcher.opts.skipWhenHidden && document.hidden) return;
+
+    try {
+      if (!Provider || typeof Provider.getLatestCall !== 'function') return;
+
+      const lookback = (__watcher.opts && __watcher.opts.lookbackHours) || 48;
+      const filter = buildWatcherFilter(lookback);
+
+      const latest = await Provider.getLatestCall(filter, null, { timeoutMs: 15000 });
+      const fp = makeCallFingerprint(latest);
+
+      if (!fp) return;
+
+      // primeira execução: apenas seta baseline
+      if (!__watcher.lastFp) {
+        __watcher.lastFp = fp;
+        return;
+      }
+
+      // mudou -> tem ligação nova (ou atualização relevante)
+      if (fp !== __watcher.lastFp) {
+        __watcher.lastFp = fp;
+
+        invalidateCache();
+        App.state.telefoniaNeedsRefresh = true;
+
+        // emite evento global (opcional)
+        if (App.events && typeof App.events.emit === 'function') {
+          App.events.emit('telefonia:calls_updated', { latest });
+        }
+
+        log('[TelefoniaService] Nova ligação detectada -> cache invalidado');
+      }
+    } catch (e) {
+      // não quebra o app por causa do watcher
+      const msg = (e && e.message) ? e.message : String(e || '');
+      if (msg !== 'TIMEOUT') log('[TelefoniaService] watcherTick erro', e);
+    }
+  }
+
+  function startWatcher(opts) {
+    // idempotente
+    __watcher.opts = __watcher.opts || {};
+    __watcher.opts = { ...__watcher.opts, ...(opts || {}) };
+
+    if (__watcher.timer) return;
+
+    const intervalMs = Math.max(8000, (__watcher.opts.intervalMs || 20000));
+
+    __watcher.running = true;
+    __watcher.timer = setInterval(watcherTick, intervalMs);
+
+    // tick inicial (baseline rápido)
+    watcherTick().catch(() => {});
+  }
+
+  function stopWatcher() {
+    __watcher.running = false;
+    if (__watcher.timer) {
+      clearInterval(__watcher.timer);
+      __watcher.timer = null;
+    }
+  }
+
+  // =======================
   // Service Public API
   // =======================
   const TelefoniaService = {
+    // watcher + cache (novos)
+    invalidateCache,
+    startWatcher,
+    stopWatcher,
+
     getActiveCollaborators(job) {
       return Provider.getActiveCollaborators(job);
     },
@@ -455,7 +558,7 @@
       const statusFilter = (filters && filters.status) ? filters.status : "all";
       const collabIdsSorted = normalizeIds(filters && filters.collaboratorIds);
 
-      // 1) calls cache (mexe em status sem refazer calls)
+      // 1) calls cache
       const callsKey = stableKey({
         dateFrom: filters && filters.dateFrom,
         dateTo: filters && filters.dateTo,
@@ -474,8 +577,6 @@
         throw new Error('Provider CRM não carregado (TelefoniaProviderCRM). Verifique o import no app.html.');
       }
 
-      // ✅ Precisamos de responsibleIds pra indexar por responsável.
-      // Se vier null (todos), buscamos a lista de ativos (já tem cache no Provider Vox).
       let respIds = collabIdsSorted;
 
       if (!Array.isArray(respIds) || respIds.length === 0) {
@@ -483,10 +584,6 @@
         respIds = (active || []).map(u => String(u.ID)).sort();
       }
 
-      // 2) decidir o modo de fetch do CRM
-      // - all: precisamos dos 7 statuses pra montar a tabela
-      // - SEM_STATUS: precisamos dos 7 statuses pra saber quem NÃO tem
-      // - status específico: podemos puxar só 1 status
       const needAllDispositions = (statusFilter === "all" || statusFilter === "SEM_STATUS");
 
       const actKey = stableKey({
@@ -508,7 +605,6 @@
 
           const results = await Promise.all(promises);
 
-          // dedup por ID
           const byId = new Map();
           for (const arr of results) {
             for (const a of (arr || [])) byId.set(String(a.ID), a);
@@ -516,7 +612,6 @@
           activities = Array.from(byId.values());
 
         } else {
-          // status específico
           activities = await ProviderCRM.getCallActivities(filters.dateFrom, filters.dateTo, respIds, statusFilter, job);
         }
 
@@ -545,10 +640,6 @@
       const agg = buildCommercialAgg(filteredCalls);
       agg.byUser = await Core.enrichWithUserNames(agg.byUser, job);
 
-      // ✅ tabela de status deve refletir "o filtro atual"
-      // - all: mostra distribuição completa
-      // - status específico: normalmente vira 1 linha
-      // - sem status: normalmente vira 1 linha
       agg.statusSummary = buildStatusSummary(filteredCalls);
 
       return agg;

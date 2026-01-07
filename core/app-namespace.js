@@ -1,3 +1,4 @@
+//app-namespace.js
 (function (global) {
     const App = global.App = global.App || {};
 
