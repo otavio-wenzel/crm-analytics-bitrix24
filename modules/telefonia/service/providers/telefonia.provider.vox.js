@@ -117,16 +117,15 @@
     );
   }
 
-  // ✅ NOVO: pega a ligação mais recente (1 página)
   async function getLatestCall(filterObj, job, opts) {
-    const rows = await callBx24SinglePage(
-      'voximplant.statistic.get',
-      { FILTER: filterObj || {}, SORT: 'CALL_START_DATE', ORDER: 'DESC' },
-      job,
-      opts || { timeoutMs: 15000 }
-    );
-    return (rows && rows.length) ? rows[0] : null;
-  }
+  const rows = await callBx24SinglePage(
+    'voximplant.statistic.get',
+    { FILTER: filterObj || {}, SORT: 'CALL_START_DATE', ORDER: 'DESC', start: 0 },
+    job,
+    opts || { timeoutMs: 15000 }
+  );
+  return (rows && rows.length) ? rows[0] : null;
+}
 
   async function getActiveCollaborators(job) {
     const now = Date.now();
