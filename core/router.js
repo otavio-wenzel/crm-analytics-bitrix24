@@ -1,4 +1,3 @@
-//router.js
 (function (global) {
   const App  = global.App = global.App || {};
   const log  = App.log || function(){};
@@ -33,7 +32,7 @@
       return;
     }
 
-    // ✅ Se realmente mudou (módulo ou view), cancela o que estava rodando no módulo anterior
+    // Se mudou módulo ou view, cancela o que estava rodando no módulo anterior
     const changed = (prevModuleId !== nextModuleId) || (prevViewId !== nextViewId);
     if (changed) {
       safeCancelModule(prevModuleId);
@@ -44,7 +43,6 @@
 
     updateSidebarSelection(nextModuleId, nextViewId);
 
-    // Se viewId for null, é só estado "selecione um relatório"
     if (!nextViewId) {
       if (refs.filtersBarEl) refs.filtersBarEl.innerHTML = '';
       if (refs.dashboardContentEl) {
@@ -91,7 +89,7 @@
     }
   }
 
-  // ✅ helper para recarregar a view atual
+  // helper para recarregar a view atual
   App.reloadActiveView = function (opts) {
     opts = opts || {};
     const moduleId = App.state.activeModuleId;

@@ -1,4 +1,3 @@
-//telefonia.service.core.js
 (function (global) {
   const App = global.App = global.App || {};
   const log = App.log || function(){};
@@ -168,7 +167,7 @@
       const u = list[0];
       if (u) {
         const fullName = ((u.NAME || '') + ' ' + (u.LAST_NAME || '')).trim();
-        nameMap.set(id, fullName || id); // ✅ sem "(ID)"
+        nameMap.set(id, fullName || id);
       }
     }
 

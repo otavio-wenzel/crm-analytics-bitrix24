@@ -1,4 +1,3 @@
-//layout.js
 (function (global) {
     const App = global.App = global.App || {};
     App.ui = App.ui || {};

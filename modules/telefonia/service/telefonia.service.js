@@ -1,4 +1,3 @@
-// telefonia.service.js
 (function (global) {
   const App = global.App = global.App || {};
   const log = App.log || function(){};
@@ -147,7 +146,7 @@
     return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`;
   }
 
-  // ✅ pool simples (concorrência controlada)
+  // pool simples (concorrência controlada)
   async function runPool(items, concurrency, workerFn, job) {
     const list = Array.isArray(items) ? items : [];
     const n = Math.max(1, parseInt(concurrency, 10) || 1);
@@ -194,7 +193,7 @@
 
       const mid = Math.floor((start + end) / 2);
 
-      // ✅ FIX: sem “buraco” entre ranges
+      // FIX: sem “buraco” entre ranges
       const leftEnd = new Date(mid);
       const rightStart = new Date(mid + 1000);
 
@@ -207,9 +206,7 @@
     }
   }
 
-  // =========================
   // CACHE (unificado)
-  // =========================
   const __cache = {
     calls: new Map(),    // key -> {ts, data, fp}
     actIndex: new Map()  // key -> {ts, data}
@@ -249,9 +246,7 @@
     __cache.actIndex.clear();
   }
 
-  // =========================
   // Calls cache + revalidação leve
-  // =========================
   function makeCallFingerprint(call) {
     if (!call) return null;
     const id  = call.CALL_ID || call.ID || '';
@@ -316,7 +311,7 @@
 
     const isUserRefresh = !!(filters && filters.__userRefresh);
 
-    // ✅ revalidação leve (só quando user pediu refresh e range inclui "agora")
+    // revalidação leve (só quando user pediu refresh e range inclui "agora")
     if (calls && entry && isUserRefresh && rangeIncludesNow(filters)) {
       try {
         const latest = await getLatestCallForFilters(filters, job);
@@ -346,17 +341,14 @@
     return calls || [];
   }
 
-  // =========================
   // FETCH com chunking + concorrência controlada
-  // =========================
   async function fetchWithChunking(filters, job) {
     const ctx = { filters: filters || {} };
     const pipeline = buildFilterPipeline();
     const ranges = PeriodFilter.buildRanges(ctx);
     if (!ranges.length) return [];
 
-    // ⚠️ concorrência do Voximplant: mantenha baixa para evitar rate-limit/engasgo
-    // Se quiser ajustar depois: 1,2,3
+    // concorrência do Voximplant: mantenha baixa para evitar rate-limit/engasgo. Pode ser ajustado: 1, 2, 3
     const VOX_CONCURRENCY = (ranges.length >= 20) ? 2 : 3;
 
     async function fetchOneRange(r) {
@@ -374,7 +366,6 @@
 
           const perUserIds = filters.collaboratorIds.map(String);
 
-          // baixa concorrência também aqui
           const perUserResults = await runPool(perUserIds, 2, async (uid) => {
             if (job && job.canceled) throw new Error('CANCELED');
 
@@ -419,9 +410,7 @@
     return parts.flat().filter(Boolean);
   }
 
-  // =========================
   // Comercial aggregations
-  // =========================
   const OUTGOING = 1;
   const INCOMING = 2;
   const INCOMING_REDIRECTED = 3;
@@ -532,9 +521,7 @@
     return out;
   }
 
-  // =========================
   // API pública do Service
-  // =========================
   const TelefoniaService = {
     invalidateCache,
 
@@ -542,7 +529,7 @@
       return Provider.getActiveCollaborators(job);
     },
 
-    // ✅ agora todos os views reaproveitam o mesmo cache de calls
+    // agora todos os views reaproveitam o mesmo cache de calls
     async fetchOverview(filters, job) {
       const calls = await fetchCallsCached(filters, job);
       const agg = Core.aggregateOverview(calls);
@@ -568,7 +555,7 @@
       const statusFilter = (filters && filters.status) ? filters.status : "all";
       const collabIdsSorted = normalizeIds(filters && filters.collaboratorIds);
 
-      // ✅ garante que o cache de calls para comercial NÃO varie por status
+      // garante que o cache de calls para comercial NÃO varie por status
       const callsFilters = {
         ...filters,
         collaboratorIds: collabIdsSorted
@@ -603,7 +590,6 @@
         let activities = [];
 
         if (needAllDispositions) {
-          // ✅ concorrência controlada (evita 7 chamadas simultâneas)
           const CRM_CONCURRENCY = 2;
 
           const results = await runPool(DISPOSITIONS, CRM_CONCURRENCY, async (disp) => {

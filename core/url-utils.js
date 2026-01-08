@@ -1,4 +1,3 @@
-//url-utils.js
 (function (global) {
     const App = global.App = global.App || {};
     const log = App.log || function(){};

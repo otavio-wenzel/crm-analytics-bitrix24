@@ -1,4 +1,3 @@
-//telefonia.dashboard.overview.js
 (function (global) {
   const App = global.App = global.App || {};
   const refs = App.ui.refs;
@@ -51,7 +50,6 @@
     rows.forEach(row => {
       const label = row.userName || row.userId;
 
-      // compatibilidade: alguns aggregators retornam totalCalls, outros "total"
       const total = (row.totalCalls ?? row.total ?? 0);
 
       html += `

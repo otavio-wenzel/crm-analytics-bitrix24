@@ -1,4 +1,3 @@
-//telefonia.filter.calltype.js
 (function (global) {
   const App = global.App = global.App || {};
   App.modules = App.modules || {};
@@ -14,15 +13,13 @@
   function apply(ctx, baseFilter) {
     const f = baseFilter || {};
 
-    // ✅ guard total (evita "Cannot read properties of undefined (reading 'callType')")
+    //Guard total (evita "Cannot read properties of undefined (reading 'callType')")
     const filters = ctx && ctx.filters ? ctx.filters : {};
-    const callType = filters.callType || 'none'; // none|inbound|outbound
+    const callType = filters.callType || 'none';
 
     if (callType === 'outbound') {
       f["CALL_TYPE"] = OUTGOING;
     } else if (callType === 'inbound') {
-      // Alguns portais aceitam array, outros não.
-      // O service fará fallback (2 chamadas) se der erro.
       f["CALL_TYPE"] = [INCOMING, INCOMING_REDIRECTED];
     }
 

@@ -1,4 +1,3 @@
-// telefonia.provider.vox.js
 (function (global) {
   const App = global.App = global.App || {};
   const log = App.log || function(){};
@@ -52,7 +51,7 @@
 
         if (result.more && result.more()) {
           arm();
-          result.next(); // chama esta MESMA callback novamente
+          result.next();
         } else {
           finishOk();
         }
@@ -70,7 +69,6 @@
     });
   }
 
-  // ✅ NOVO: chamada de 1 página só (leve, para watcher)
   function callBx24SinglePage(method, params, job, opts) {
     const timeoutMs = (opts && opts.timeoutMs) || 15000;
 
@@ -137,7 +135,6 @@
       return App.state.telefoniaCache.users;
     }
 
-    // ✅ usar FILTER/SELECT (maiúsculo) para evitar comportamento inconsistente
     const users = await callBx24ListAll(
       'user.get',
       { FILTER: { ACTIVE: 'Y' }, SELECT: ['ID','NAME','LAST_NAME'] },
@@ -161,7 +158,7 @@
 
   App.modules.TelefoniaProviderVox = {
     getCalls,
-    getLatestCall,          // ✅ novo
+    getLatestCall,
     getActiveCollaborators
   };
 })(window);

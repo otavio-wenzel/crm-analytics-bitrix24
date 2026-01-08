@@ -1,4 +1,3 @@
-//telefonia.module.js
 (function (global) {
   const App  = global.App = global.App || {};
   const log  = App.log || function(){};
@@ -47,7 +46,6 @@
               App.state.telefoniaJobs.data.id === job.id);
   }
 
-  // ✅ garante 1 frame de repaint (pra mostrar "Carregando...")
   function nextPaint() {
     return new Promise(resolve => {
       if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
@@ -77,7 +75,6 @@
     };
   }
 
-  // ✅ IMPORTANTE: durante loading, NÃO desabilitar sidebar (usuário pode navegar/cancelar)
   function setUiLoadingState(isLoading) {
     const els = getFilterEls();
 
@@ -94,23 +91,16 @@
     ].forEach(el => {
       if (el) el.disabled = !!isLoading;
     });
-
-    // ⚠️ NÃO bloquear navegação:
-    // if (refs.sidebarSubBtns) refs.sidebarSubBtns.forEach(btn => btn.disabled = !!isLoading);
-    // if (refs.sidebarModuleBtns) refs.sidebarModuleBtns.forEach(btn => btn.disabled = !!isLoading);
   }
 
-  // ✅ NOVO: cancelamento "duro" do módulo (para troca de view/módulo)
   function cancelAll() {
     try {
       if (App.state.telefoniaJobs?.data) App.state.telefoniaJobs.data.canceled = true;
       if (App.state.telefoniaJobs?.collab) App.state.telefoniaJobs.collab.canceled = true;
     } catch (e) {}
 
-    // destrava filtros imediatamente
     setUiLoadingState(false);
 
-    // não “apaga” o painel aqui; o router assume o controle da tela ao trocar view.
     log('[TelefoniaModule] cancelAll -> jobs cancelados e UI destravada');
   }
 
@@ -583,7 +573,6 @@
     setUiLoadingState(true);
     BaseDash.showLoading(true, 'Carregando dados de telefonia...');
 
-    // garante pintura do "Carregando..."
     await nextPaint();
 
     try {
@@ -642,7 +631,6 @@
         BaseDash.renderError('Erro ao carregar dados de telefonia. ' + msg);
       }
     } finally {
-      // ✅ Desbloqueia a UI SOMENTE se este job ainda é o job "atual" do módulo
       if (isCurrentDataJob(job)) {
         BaseDash.showLoading(false);
         setUiLoadingState(false);
@@ -660,6 +648,6 @@
     label: 'Telefonia',
     renderFilters,
     loadAndRender,
-    cancelAll // ✅ novo
+    cancelAll
   };
 })(window);

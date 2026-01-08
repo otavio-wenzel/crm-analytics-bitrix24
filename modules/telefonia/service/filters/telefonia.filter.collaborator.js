@@ -1,4 +1,3 @@
-//telefonia.filter.collaborator.js
 (function (global) {
   const App = global.App = global.App || {};
   App.modules = App.modules || {};

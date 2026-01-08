@@ -1,4 +1,3 @@
-// telefonia.filter.period.js
 (function (global) {
   const App = global.App = global.App || {};
   const log = App.log || function(){};
@@ -34,7 +33,7 @@
     return Math.max(0, days) + 1;
   }
 
-  // ✅ chunks por "dias inteiros" (00:00:00 -> 23:59:59) sem buracos
+  //chunks por "dias inteiros" (00:00:00 -> 23:59:59) sem buracos
   function makeDayChunks(dateFromIso, dateToIso, daysPerChunk) {
     const out = [];
     if (!dateFromIso || !dateToIso) return out;
@@ -68,7 +67,7 @@
     return out;
   }
 
-  // ✅ escolhe chunk size automaticamente para não gerar dezenas/centenas de chamadas
+  // escolhe chunk size automaticamente para não gerar dezenas/centenas de chamadas
   function chooseDaysPerChunk(totalDays) {
     // alvo: não passar muito de ~30-40 chunks
     const MAX_CHUNKS_TARGET = 35;
@@ -105,8 +104,7 @@
 
     return chunks;
   }
-
-  // usado pelo service no fallback também
+  
   function splitRange(range, daysPerChunk) {
     return makeDayChunks(range.dateFrom, range.dateTo, daysPerChunk);
   }

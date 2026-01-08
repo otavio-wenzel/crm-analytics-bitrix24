@@ -1,4 +1,3 @@
-//telefonia.dashboard.base.js
 (function (global) {
   const App = global.App = global.App || {};
   const refs = App.ui.refs;
@@ -34,12 +33,10 @@
       `<div class="placeholder">${escapeHtml(message || 'Erro ao carregar dados.')}</div>`;
   }
 
-  // ✅ NOVO: HTML padrão de “sem dados”
   function emptyHtml(message) {
     return `<div class="placeholder">${escapeHtml(message || 'Nenhum resultado encontrado para os filtros selecionados.')}</div>`;
   }
 
-  // ✅ NOVO: render padrão de “sem dados” (tela inteira)
   function renderEmpty(message) {
     if (!refs.dashboardContentEl) return;
     refs.dashboardContentEl.innerHTML = emptyHtml(message);

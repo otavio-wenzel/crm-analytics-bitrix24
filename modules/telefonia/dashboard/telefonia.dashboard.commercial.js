@@ -1,4 +1,3 @@
-//telefonia.dashboard.commercial.js
 (function (global) {
   const App = global.App = global.App || {};
   const refs = App.ui.refs;
@@ -97,7 +96,6 @@
       html += '</tbody></table>';
     }
 
-    // ✅ Segunda tabela: Status (permanece SEMPRE)
     html += renderStatusTable(data.statusSummary);
 
     refs.dashboardContentEl.innerHTML = html;

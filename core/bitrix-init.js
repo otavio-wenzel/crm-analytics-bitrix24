@@ -1,4 +1,3 @@
-// bitrix-init.js
 (function (global) {
   const App  = global.App = global.App || {};
   const log  = App.log || function(){};
@@ -58,7 +57,7 @@
         return;
       }
 
-      // ✅ Start watcher (apenas 1 vez) — depois do admin autorizado
+      //Start watcher (apenas 1 vez) — depois do admin autorizado
       try {
         const Svc = App.modules && App.modules.TelefoniaService;
         if (Svc && typeof Svc.startWatcher === 'function') {
@@ -73,7 +72,6 @@
         log('[bitrix-init] Falha ao iniciar watcher', e);
       }
 
-      // ✅ (opcional) pausar/retomar ao esconder/exibir aba
       try {
         document.addEventListener('visibilitychange', function () {
           const Svc = App.modules && App.modules.TelefoniaService;
@@ -92,10 +90,10 @@
           }
         });
       } catch (e) {
-        // silencioso
+
       }
 
-      // Admin autorizado: abre módulo padrão (Telefonia / "menu fechado" => view null)
+      // Admin autorizado: abre módulo padrão
       if (typeof App.setActiveModule === 'function') {
         App.setActiveModule('telefonia', null);
       } else if (App.modules && App.modules.telefonia) {

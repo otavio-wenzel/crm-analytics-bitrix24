@@ -1,4 +1,3 @@
-//telefonia.provider.crm.js
 (function (global) {
   const App = global.App = global.App || {};
   const log = App.log || function(){};
@@ -70,7 +69,7 @@
       "<=START_TIME": isoToSpace(dateTo)
     };
 
-    // ⚡️ filtro por descrição (server-side)
+    // filtro por descrição (server-side)
     if (descriptionLike) {
       filter["%DESCRIPTION"] = String(descriptionLike);
     }
@@ -84,7 +83,6 @@
     const params = {
       order: { START_TIME: "DESC" },
       filter,
-      // pega só o necessário (menos payload)
       select: [
         "ID",
         "DESCRIPTION",
