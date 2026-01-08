@@ -51,7 +51,7 @@
 
         if (result.more && result.more()) {
           arm();
-          result.next(); // chama esta MESMA callback novamente
+          result.next();
         } else {
           finishOk();
         }
@@ -69,6 +69,43 @@
     });
   }
 
+  function callBx24SinglePage(method, params, job, opts) {
+    const timeoutMs = (opts && opts.timeoutMs) || 15000;
+
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const t = setTimeout(() => {
+        if (done) return;
+        done = true;
+        reject(new Error('TIMEOUT'));
+      }, timeoutMs);
+
+      BX24.callMethod(method, params, function (result) {
+        if (done) return;
+        try {
+          if (job && job.canceled) {
+            clearTimeout(t);
+            done = true;
+            return reject(new Error('CANCELED'));
+          }
+          if (result.error && result.error()) {
+            clearTimeout(t);
+            done = true;
+            return reject(result.error());
+          }
+          const data = (typeof result.data === 'function') ? (result.data() || []) : [];
+          clearTimeout(t);
+          done = true;
+          resolve(Array.isArray(data) ? data : []);
+        } catch (e) {
+          clearTimeout(t);
+          done = true;
+          reject(e);
+        }
+      });
+    });
+  }
+
   async function getCalls(filterObj, job, opts) {
     return await callBx24ListAll(
       'voximplant.statistic.get',
@@ -77,6 +114,16 @@
       opts || { timeoutPerPageMs: 30000, maxTotalMs: 180000 }
     );
   }
+
+  async function getLatestCall(filterObj, job, opts) {
+  const rows = await callBx24SinglePage(
+    'voximplant.statistic.get',
+    { FILTER: filterObj || {}, SORT: 'CALL_START_DATE', ORDER: 'DESC', start: 0 },
+    job,
+    opts || { timeoutMs: 15000 }
+  );
+  return (rows && rows.length) ? rows[0] : null;
+}
 
   async function getActiveCollaborators(job) {
     const now = Date.now();
@@ -88,7 +135,6 @@
       return App.state.telefoniaCache.users;
     }
 
-    // ✅ usar FILTER/SELECT (maiúsculo) para evitar comportamento inconsistente
     const users = await callBx24ListAll(
       'user.get',
       { FILTER: { ACTIVE: 'Y' }, SELECT: ['ID','NAME','LAST_NAME'] },
@@ -112,6 +158,7 @@
 
   App.modules.TelefoniaProviderVox = {
     getCalls,
+    getLatestCall,
     getActiveCollaborators
   };
 })(window);

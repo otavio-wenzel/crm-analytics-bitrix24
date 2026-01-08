@@ -6,22 +6,30 @@
 
   function render(data) {
     if (!refs.dashboardContentEl) return;
+
     if (!data || !data.totals) {
-      refs.dashboardContentEl.innerHTML =
-        '<div class="placeholder">Nenhuma chamada realizada no período.</div>';
+      Base.renderEmpty('Nenhum resultado encontrado para os filtros selecionados.');
       return;
     }
 
     let html = '';
     html += '<h3>Chamadas realizadas (saída)</h3>';
     html += `<p>
-      Total de chamadas realizadas: ${data.totals.totalCalls}<br>
-      Atendidas: ${data.totals.answered}<br>
-      Não atendidas / perdidas: ${data.totals.missed}<br>
-      Tempo total (hh:mm:ss): <strong>${Base.formatHMS(data.totals.totalDurationSeconds)}</strong>
+      Total de chamadas realizadas: <strong>${data.totals.totalCalls || 0}</strong><br>
+      Atendidas: <strong>${data.totals.answered || 0}</strong><br>
+      Não atendidas / perdidas: <strong>${data.totals.missed || 0}</strong><br>
+      Tempo total (hh:mm:ss): <strong>${Base.formatHMS(data.totals.totalDurationSeconds || 0)}</strong>
     </p>`;
 
     html += '<h4>Por usuário</h4>';
+
+    const rows = Array.isArray(data.byUser) ? data.byUser : [];
+    if (!rows.length) {
+      html += Base.emptyHtml('Nenhum resultado encontrado para os filtros selecionados.');
+      refs.dashboardContentEl.innerHTML = html;
+      return;
+    }
+
     html += `
       <table class="simple-table">
         <thead>
@@ -36,12 +44,14 @@
         <tbody>
     `;
 
-    (data.byUser || []).forEach(row => {
+    rows.forEach(row => {
       const label = row.userName || row.userId;
+      const total = (row.totalCalls ?? row.total ?? 0);
+
       html += `
         <tr>
           <td>${label}</td>
-          <td class="num">${row.total || 0}</td>
+          <td class="num">${total}</td>
           <td class="num">${row.answered || 0}</td>
           <td class="num">${row.missed || 0}</td>
           <td class="num">${Base.formatHMS(row.totalDurationSeconds || 0)}</td>
@@ -50,9 +60,6 @@
     });
 
     html += '</tbody></table>';
-
-    // ❌ Removido por enquanto: Status (CALL_FAILED_CODE)
-
     refs.dashboardContentEl.innerHTML = html;
   }
 
