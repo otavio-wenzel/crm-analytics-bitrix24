@@ -1,3 +1,4 @@
+//telefonia.dashboard.overview.js
 (function (global) {
   const App = global.App = global.App || {};
   const refs = App.ui.refs;
@@ -8,8 +9,7 @@
     if (!refs.dashboardContentEl) return;
 
     if (!data || !data.totals) {
-      refs.dashboardContentEl.innerHTML =
-        '<div class="placeholder">Nenhum dado encontrado para o período selecionado.</div>';
+      Base.renderEmpty('Nenhum resultado encontrado para os filtros selecionados.');
       return;
     }
 
@@ -29,7 +29,7 @@
 
     const rows = Array.isArray(data.byUser) ? data.byUser : [];
     if (!rows.length) {
-      html += '<div class="placeholder">Nenhum resultado encontrado para os filtros selecionados.</div>';
+      html += Base.emptyHtml('Nenhum resultado encontrado para os filtros selecionados.');
       refs.dashboardContentEl.innerHTML = html;
       return;
     }

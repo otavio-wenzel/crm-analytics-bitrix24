@@ -1,6 +1,16 @@
+//telefonia.dashboard.base.js
 (function (global) {
   const App = global.App = global.App || {};
   const refs = App.ui.refs;
+
+  function escapeHtml(s) {
+    return String(s || '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
 
   function formatHMS(totalSeconds) {
     const s = Math.max(0, parseInt(totalSeconds, 10) || 0);
@@ -14,19 +24,33 @@
     if (!refs.dashboardContentEl) return;
     if (isLoading) {
       refs.dashboardContentEl.innerHTML =
-        `<div class="placeholder">${message || 'Carregando dados de telefonia...'}</div>`;
+        `<div class="placeholder">${escapeHtml(message || 'Carregando dados de telefonia...')}</div>`;
     }
   }
 
   function renderError(message) {
     if (!refs.dashboardContentEl) return;
     refs.dashboardContentEl.innerHTML =
-      `<div class="placeholder">${message || 'Erro ao carregar dados.'}</div>`;
+      `<div class="placeholder">${escapeHtml(message || 'Erro ao carregar dados.')}</div>`;
+  }
+
+  // ✅ NOVO: HTML padrão de “sem dados”
+  function emptyHtml(message) {
+    return `<div class="placeholder">${escapeHtml(message || 'Nenhum resultado encontrado para os filtros selecionados.')}</div>`;
+  }
+
+  // ✅ NOVO: render padrão de “sem dados” (tela inteira)
+  function renderEmpty(message) {
+    if (!refs.dashboardContentEl) return;
+    refs.dashboardContentEl.innerHTML = emptyHtml(message);
   }
 
   App.modules.TelefoniaDashboardBase = {
+    escapeHtml,
     formatHMS,
     showLoading,
-    renderError
+    renderError,
+    emptyHtml,
+    renderEmpty
   };
 })(window);

@@ -1,3 +1,4 @@
+//telefonia.module.js
 (function (global) {
   const App  = global.App = global.App || {};
   const log  = App.log || function(){};
@@ -21,10 +22,9 @@
     collab: { id: 0, canceled: false }
   };
 
-  // estado do dropdown multi-seleção (comercial)
   App.state.telefoniaCommercial = App.state.telefoniaCommercial || {
-    selectedUserIds: new Set(),  // Set<string>
-    usersCache: []               // [{ID, NAME}]
+    selectedUserIds: new Set(),
+    usersCache: []
   };
 
   function startNewDataJob() {
@@ -41,18 +41,29 @@
     return job;
   }
 
+  function isCurrentDataJob(job) {
+    return !!(App.state.telefoniaJobs &&
+              App.state.telefoniaJobs.data &&
+              App.state.telefoniaJobs.data.id === job.id);
+  }
+
+  // ✅ garante 1 frame de repaint (pra mostrar "Carregando...")
+  function nextPaint() {
+    return new Promise(resolve => {
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+      else setTimeout(resolve, 0);
+    });
+  }
+
   function getFilterEls() {
     return {
-      // padrão
       collaboratorSel: document.getElementById('filter-collaborator'),
 
-      // período
       periodSel: document.getElementById('filter-period'),
       fromInput: document.getElementById('filter-from'),
       toInput: document.getElementById('filter-to'),
       applyBtn: document.getElementById('btn-apply-filters'),
 
-      // comercial
       callTypeSel: document.getElementById('filter-calltype'),
       statusSel: document.getElementById('filter-status'),
 
@@ -66,6 +77,7 @@
     };
   }
 
+  // ✅ IMPORTANTE: durante loading, NÃO desabilitar sidebar (usuário pode navegar/cancelar)
   function setUiLoadingState(isLoading) {
     const els = getFilterEls();
 
@@ -83,8 +95,23 @@
       if (el) el.disabled = !!isLoading;
     });
 
-    if (refs.sidebarSubBtns) refs.sidebarSubBtns.forEach(btn => btn.disabled = !!isLoading);
-    if (refs.sidebarModuleBtns) refs.sidebarModuleBtns.forEach(btn => btn.disabled = !!isLoading);
+    // ⚠️ NÃO bloquear navegação:
+    // if (refs.sidebarSubBtns) refs.sidebarSubBtns.forEach(btn => btn.disabled = !!isLoading);
+    // if (refs.sidebarModuleBtns) refs.sidebarModuleBtns.forEach(btn => btn.disabled = !!isLoading);
+  }
+
+  // ✅ NOVO: cancelamento "duro" do módulo (para troca de view/módulo)
+  function cancelAll() {
+    try {
+      if (App.state.telefoniaJobs?.data) App.state.telefoniaJobs.data.canceled = true;
+      if (App.state.telefoniaJobs?.collab) App.state.telefoniaJobs.collab.canceled = true;
+    } catch (e) {}
+
+    // destrava filtros imediatamente
+    setUiLoadingState(false);
+
+    // não “apaga” o painel aqui; o router assume o controle da tela ao trocar view.
+    log('[TelefoniaModule] cancelAll -> jobs cancelados e UI destravada');
   }
 
   function renderFilters(container, viewId) {
@@ -94,9 +121,8 @@
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
 
         ${isCommercial ? `
-          <!-- 1) Colaboradores primeiro -->
           <div style="min-width:320px; position:relative;">
-            <label>Colaboradores:</label><br>
+            <label>Colaborador:</label><br>
 
             <button id="filter-users-btn" type="button"
               style="width:100%; text-align:left; padding:4px 6px; border:1px solid #ccc; border-radius:3px; background:#fff;">
@@ -128,11 +154,10 @@
             </div>
           </div>
 
-          <!-- 2) Tipo de ligação depois -->
           <div>
             <label>Tipo de ligação:</label><br>
             <select id="filter-calltype">
-              <option value="none" selected>Nenhum (todas)</option>
+              <option value="none" selected>Todas</option>
               <option value="inbound">Recebidas</option>
               <option value="outbound">Realizadas</option>
             </select>
@@ -166,6 +191,7 @@
           <label>Período:</label><br>
           <select id="filter-period">
             <option value="today" selected>Hoje</option>
+            <option value="yesterday">Ontem</option>
             <option value="7d">Últimos 7 dias</option>
             <option value="30d">Últimos 30 dias</option>
             <option value="90d">Últimos 90 dias</option>
@@ -189,9 +215,11 @@
 
     const periodSel = document.getElementById('filter-period');
     const customBox = document.getElementById('custom-period-container');
-    periodSel.addEventListener('change', function () {
-      customBox.style.display = (this.value === 'custom') ? 'inline-block' : 'none';
-    });
+    if (periodSel && customBox) {
+      periodSel.addEventListener('change', function () {
+        customBox.style.display = (this.value === 'custom') ? 'inline-block' : 'none';
+      });
+    }
 
     if (isCommercial) {
       wireCommercialUsersUI();
@@ -388,7 +416,6 @@
       const selected = App.state.telefoniaCommercial.selectedUserIds;
       const allIds = (users || []).map(u => String(u.ID));
 
-      // default: todos selecionados
       if (selected.size === 0 && allIds.length) {
         allIds.forEach(id => selected.add(id));
       } else {
@@ -480,6 +507,15 @@
       dateFrom = fmt(start);
       dateTo = fmt(end);
 
+    } else if (period === 'yesterday') {
+      const y = new Date(now);
+      y.setDate(now.getDate() - 1);
+
+      const start = new Date(y.getFullYear(), y.getMonth(), y.getDate(), 0,0,0);
+      const end = new Date(y.getFullYear(), y.getMonth(), y.getDate(), 23,59,59);
+      dateFrom = fmt(start);
+      dateTo = fmt(end);
+
     } else if (period.endsWith('d') && period !== 'custom') {
       const days = parseInt(period.replace('d',''), 10) - 1;
       const startDate = new Date(now);
@@ -536,6 +572,8 @@
     const job = startNewDataJob();
     App.state.activeViewId = viewId;
 
+    const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+
     const period = computeDateRangeFromUI();
     if (period && period.error) {
       BaseDash.renderError(`Filtro inválido: ${period.error}`);
@@ -544,6 +582,9 @@
 
     setUiLoadingState(true);
     BaseDash.showLoading(true, 'Carregando dados de telefonia...');
+
+    // garante pintura do "Carregando..."
+    await nextPaint();
 
     try {
       let data;
@@ -557,7 +598,8 @@
           dateTo: period.dateTo,
           callType: commercial.callType,
           collaboratorIds: commercial.collaboratorIds,
-          status: commercial.status
+          status: commercial.status,
+          __userRefresh: Date.now()
         };
 
         log('[TelefoniaModule] loadAndRender COMERCIAL', { ...filters, jobId: job.id });
@@ -585,6 +627,9 @@
 
       dash.render(data, filters);
 
+      const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      log('[TelefoniaModule] render OK (' + Math.round(t1 - t0) + 'ms)', { viewId, jobId: job.id });
+
     } catch (e) {
       if (job.canceled) return;
 
@@ -597,7 +642,8 @@
         BaseDash.renderError('Erro ao carregar dados de telefonia. ' + msg);
       }
     } finally {
-      if (!job.canceled) {
+      // ✅ Desbloqueia a UI SOMENTE se este job ainda é o job "atual" do módulo
+      if (isCurrentDataJob(job)) {
         BaseDash.showLoading(false);
         setUiLoadingState(false);
       }
@@ -613,6 +659,7 @@
     id: 'telefonia',
     label: 'Telefonia',
     renderFilters,
-    loadAndRender
+    loadAndRender,
+    cancelAll // ✅ novo
   };
 })(window);

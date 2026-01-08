@@ -1,17 +1,9 @@
+//telefonia.dashboard.commercial.js
 (function (global) {
   const App = global.App = global.App || {};
   const refs = App.ui.refs;
 
   const Base = App.modules.TelefoniaDashboardBase;
-
-  function escapeHtml(s) {
-    return String(s || '')
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#039;');
-  }
 
   function renderStatusTable(statusSummary) {
     const rows = Array.isArray(statusSummary) ? statusSummary : [];
@@ -37,7 +29,7 @@
       rows.forEach(r => {
         html += `
           <tr>
-            <td>${escapeHtml(r.status || r.key || '')}</td>
+            <td>${Base.escapeHtml(r.status || r.key || '')}</td>
             <td class="num">${Number(r.count || 0)}</td>
           </tr>
         `;
@@ -52,8 +44,7 @@
     if (!refs.dashboardContentEl) return;
 
     if (!data || !data.totals) {
-      refs.dashboardContentEl.innerHTML =
-        '<div class="placeholder">Nenhum dado encontrado para o período selecionado.</div>';
+      Base.renderEmpty('Nenhum resultado encontrado para os filtros selecionados.');
       return;
     }
 
@@ -72,7 +63,7 @@
 
     const rows = Array.isArray(data.byUser) ? data.byUser : [];
     if (!rows.length) {
-      html += '<div class="placeholder">Nenhum resultado encontrado para os filtros selecionados.</div>';
+      html += Base.emptyHtml('Nenhum resultado encontrado para os filtros selecionados.');
     } else {
       html += `
         <table class="simple-table">
@@ -90,7 +81,7 @@
       `;
 
       rows.forEach(row => {
-        const label = escapeHtml(row.userName || row.userId);
+        const label = Base.escapeHtml(row.userName || row.userId);
         html += `
           <tr>
             <td>${label}</td>
