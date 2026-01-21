@@ -16,7 +16,11 @@
     "RETORNO POR E-MAIL",
     "NÃO TEM INTERESSE",
     "NÃO FAZ LOCAÇÃO",
-    "CAIXA POSTAL"
+    "CAIXA POSTAL",
+    "CHAMADA OCUPADA",
+    "DESLIGOU",
+    "CHAMADA PERDIDA",
+    "NÚMERO INCORRETO"
   ];
 
   function extractDispositionFromDescription(desc) {

@@ -164,6 +164,10 @@
               <option value="NÃO TEM INTERESSE">NÃO TEM INTERESSE</option>
               <option value="NÃO FAZ LOCAÇÃO">NÃO FAZ LOCAÇÃO</option>
               <option value="CAIXA POSTAL">CAIXA POSTAL</option>
+              <option value="CHAMADA OCUPADA">CHAMADA OCUPADA</option>
+              <option value="DESLIGOU">DESLIGOU</option>
+              <option value="CHAMADA PERDIDA">CHAMADA PERDIDA</option>
+              <option value="NÚMERO INCORRETO">NÚMERO INCORRETO</option>
               <option value="SEM_STATUS">Sem status</option>
             </select>
           </div>
