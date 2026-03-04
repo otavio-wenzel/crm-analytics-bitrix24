@@ -7,9 +7,6 @@
   const BaseDash = App.modules.TelefoniaDashboardBase;
 
   const Dashboards = {
-    overview: App.modules.TelefoniaDashboardOverview,
-    chamadas_recebidas: App.modules.TelefoniaDashboardInbound,
-    chamadas_realizadas: App.modules.TelefoniaDashboardOutbound,
     analise_comercial: App.modules.TelefoniaDashboardCommercial
   };
 
@@ -157,18 +154,9 @@
             <label>Status:</label><br>
             <select id="filter-status">
               <option value="all" selected>Todos</option>
-              <option value="REUNIÃO AGENDADA">REUNIÃO AGENDADA</option>
-              <option value="FALEI COM SECRETÁRIA">FALEI COM SECRETÁRIA</option>
-              <option value="FOLLOW-UP">FOLLOW-UP</option>
-              <option value="RETORNO POR E-MAIL">RETORNO POR E-MAIL</option>
-              <option value="NÃO TEM INTERESSE">NÃO TEM INTERESSE</option>
-              <option value="NÃO FAZ LOCAÇÃO">NÃO FAZ LOCAÇÃO</option>
-              <option value="CAIXA POSTAL">CAIXA POSTAL</option>
-              <option value="CHAMADA OCUPADA">CHAMADA OCUPADA</option>
-              <option value="DESLIGOU">DESLIGOU</option>
-              <option value="CHAMADA PERDIDA">CHAMADA PERDIDA</option>
-              <option value="NÚMERO INCORRETO">NÚMERO INCORRETO</option>
-              <option value="SEM_STATUS">Sem status</option>
+              <option value="IMOBILIARIA QUALIFICADA">IMOBILIARIA QUALIFICADA</option>
+              <option value="EMPRESA QUALIFICADA">EMPRESA QUALIFICADA</option>
+              <option value="SEM_STATUS">SEM STATUS</option>
             </select>
           </div>
         ` : `
@@ -564,9 +552,9 @@
 
   async function loadAndRender(viewId) {
     const job = startNewDataJob();
-    App.state.activeViewId = viewId;
+    App.state.activeViewId = 'analise_comercial';
 
-    const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    const t0 = performance.now ? performance.now() : Date.now();
 
     const period = computeDateRangeFromUI();
     if (period && period.error) {
@@ -580,60 +568,30 @@
     await nextPaint();
 
     try {
-      let data;
-      let filters = null;
+      const commercial = getCommercialFiltersFromUI();
 
-      if (viewId === 'analise_comercial') {
-        const commercial = getCommercialFiltersFromUI();
+      const filters = {
+        dateFrom: period.dateFrom,
+        dateTo: period.dateTo,
+        callType: commercial.callType,
+        collaboratorIds: commercial.collaboratorIds,
+        status: commercial.status,
+        __userRefresh: Date.now()
+      };
 
-        filters = {
-          dateFrom: period.dateFrom,
-          dateTo: period.dateTo,
-          callType: commercial.callType,
-          collaboratorIds: commercial.collaboratorIds,
-          status: commercial.status,
-          __userRefresh: Date.now()
-        };
-
-        log('[TelefoniaModule] loadAndRender COMERCIAL', { ...filters, jobId: job.id });
-        data = await Service.fetchAnaliseComercial(filters, job);
-
-      } else {
-        const collaboratorId = getCollaboratorFromUI();
-        filters = { collaboratorId, dateFrom: period.dateFrom, dateTo: period.dateTo };
-
-        log('[TelefoniaModule] loadAndRender', { viewId, ...filters, jobId: job.id });
-
-        if (viewId === 'overview') data = await Service.fetchOverview(filters, job);
-        else if (viewId === 'chamadas_recebidas') data = await Service.fetchChamadasRecebidas(filters, job);
-        else if (viewId === 'chamadas_realizadas') data = await Service.fetchChamadasRealizadas(filters, job);
-        else data = await Service.fetchOverview(filters, job);
-      }
+      const data = await Service.fetchAnaliseComercial(filters, job);
 
       if (job.canceled) return;
 
-      const dash = Dashboards[viewId] || Dashboards.overview;
-      if (!dash || typeof dash.render !== 'function') {
-        BaseDash.renderError(`Dashboard "${viewId}" não carregado. Verifique o import do script no app.html.`);
-        return;
-      }
-
+      const dash = App.modules.TelefoniaDashboardCommercial;
       dash.render(data, filters);
 
-      const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-      log('[TelefoniaModule] render OK (' + Math.round(t1 - t0) + 'ms)', { viewId, jobId: job.id });
+      const t1 = performance.now ? performance.now() : Date.now();
+      log('[TelefoniaModule] render OK (' + Math.round(t1 - t0) + 'ms)');
 
     } catch (e) {
       if (job.canceled) return;
-
-      const msg = (e && e.message) ? e.message : String(e || '');
-      log('[TelefoniaModule] ERRO', msg);
-
-      if (msg === 'TIMEOUT') {
-        BaseDash.renderError('Timeout ao carregar dados. Tente um período menor ou um colaborador/seleção mais específica.');
-      } else {
-        BaseDash.renderError('Erro ao carregar dados de telefonia. ' + msg);
-      }
+      BaseDash.renderError('Erro ao carregar dados.');
     } finally {
       if (isCurrentDataJob(job)) {
         BaseDash.showLoading(false);

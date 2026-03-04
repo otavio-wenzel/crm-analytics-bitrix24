@@ -3,8 +3,7 @@
   const log  = App.log || function(){};
   const refs = App.ui.refs;
 
-  App.state.activeModuleId = App.state.activeModuleId || 'telefonia';
-  App.state.activeViewId   = App.state.activeViewId   || 'overview';
+  App.state.activeViewId = 'analise_comercial';
 
   function safeCancelModule(moduleId) {
     if (!moduleId) return;

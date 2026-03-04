@@ -95,15 +95,15 @@
 
       // Admin autorizado: abre módulo padrão
       if (typeof App.setActiveModule === 'function') {
-        App.setActiveModule('telefonia', null);
+        App.setActiveModule('telefonia', 'analise_comercial');
       } else if (App.modules && App.modules.telefonia) {
         // fallback se o router ainda não estiver pronto
         const mod = App.modules.telefonia;
         if (mod.renderFilters && refs.filtersBarEl) {
-          mod.renderFilters(refs.filtersBarEl, 'overview');
+          mod.renderFilters(refs.filtersBarEl, 'analise_comercial');
         }
         if (typeof mod.loadAndRender === 'function') {
-          mod.loadAndRender('overview');
+          mod.loadAndRender('analise_comercial');
         }
       }
     });
